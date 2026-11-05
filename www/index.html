@@ -1020,21 +1020,26 @@
             `).addTo(visitorCentersLayer);
         });
 
+        const AIRPORT_COLORS = { MZG: '#7e22ce', TSA: '#1d4ed8', RMQ: '#ea580c', CYI: '#a16207', TNN: '#be185d', KHH: '#0f766e', CMJ: '#4d7c0f' };
         Object.values(AIRPORTS).forEach(apt => {
+            const aptColor = AIRPORT_COLORS[apt.code] || '#7e22ce';
             L.circleMarker([apt.lat, apt.lon], {
                 radius: 6.5,
                 color: '#ffffff',
                 weight: 2,
-                fillColor: '#9333ea',
+                fillColor: aptColor,
                 fillOpacity: 1
             }).bindTooltip(`${apt.name} (${apt.code})`, {
                 permanent: true,
                 direction: 'top',
                 className: 'airport-label',
                 offset: [0, -6]
+            }).on('tooltipopen', e => {
+                const el = e.tooltip.getElement();
+                if (el) { el.style.color = aptColor; el.style.borderColor = aptColor; el.style.background = '#ffffff'; }
             }).bindPopup(`
                 <div style="font-size:13px; line-height:1.6;">
-                    <strong style="font-size:14px; color:#7e22ce;">✈️ ${apt.name} (${apt.code})</strong><br>
+                    <strong style="font-size:14px; color:${aptColor};">✈️ ${apt.name} (${apt.code})</strong><br>
                     <b>緯度：</b>${apt.lat.toFixed(6)} | <b>經度：</b>${apt.lon.toFixed(6)}
                 </div>
             `).on('click', () => {
@@ -1095,6 +1100,7 @@
         fetchTDXShipData();
         fetchFlightData();
         fetchAircraftPositions();
+        fetchDepartureBoards();
     }
 
     function changeZone() {
@@ -1275,7 +1281,14 @@
         return ev;
     }
 
-    async function getTDXAccessToken() {
+    let tdxTokenPending = null;
+    function getTDXAccessToken() {
+        if (cachedToken && Date.now() < tokenExpireTime) return Promise.resolve(cachedToken);
+        if (!tdxTokenPending) tdxTokenPending = requestTDXAccessToken().finally(() => { tdxTokenPending = null; });
+        return tdxTokenPending;
+    }
+
+    async function requestTDXAccessToken() {
         const now = Date.now();
         if (cachedToken && now < tokenExpireTime) return cachedToken;
         const clientId = TDX_CONFIG.CLIENT_ID.trim();
@@ -1474,9 +1487,10 @@
                 place: r[2],
                 DepartureAirportID: extractAirportCode(r[2]),
                 ArrivalAirportID: 'MZG',
-                scheduledStart: r[4], actualStart: r[5], scheduledEnd: r[6], actualEnd: r[7],
+                scheduledStart: r[4], actualStart: r[5], scheduledEnd: r[6], actualEnd: r[7], remark: r[8],
                 status: arrivalStatus(r[8], r[4], r[5], r[6], r[7])
             })).filter(f => allowedAirports.includes(f.DepartureAirportID));
+            applyDepartureBoards();
 
             flightStatusText = `航班更新 ${clockNow()}`;
             renderFlights();
@@ -1827,11 +1841,22 @@
         '20': { east: [23.74, 119.80], faf: [23.712, 119.689] }    // 由北方進場，從北邊對準 20 跑道
     };
 
+    // 起飛後先出海再沿台灣海峽飛行（不穿越本島山區）
+    const DEPARTURE_EXITS = {
+        TSA: [[25.10, 121.22], [24.95, 120.95], [24.30, 120.35]],
+        RMQ: [[24.15, 120.40]],
+        CYI: [[23.42, 120.05]],
+        TNN: [[23.05, 120.00]],
+        KHH: [[22.75, 120.05]],
+        CMJ: []
+    };
+
     function flightRoutePoints(depCode) {
         const dep = AIRPORTS[depCode], mzg = AIRPORTS.MZG;
         const rwy = APPROACH_POINTS[currentRunway()];
+        const exits = DEPARTURE_EXITS[depCode] || [];
         if (depCode === 'CMJ') return [[dep.lat, dep.lon], rwy.faf, [mzg.lat, mzg.lon]];
-        return [[dep.lat, dep.lon], rwy.east, rwy.faf, [mzg.lat, mzg.lon]];
+        return [[dep.lat, dep.lon], ...exits, rwy.east, rwy.faf, [mzg.lat, mzg.lon]];
     }
 
     // 非等速：起飛後加速、中段巡航、進場減速；回傳已飛距離比例
@@ -2032,6 +2057,56 @@
                 }
             };
             listEl.appendChild(card);
+        });
+    }
+
+    // ===== 起飛機場的出發航班資訊：補上「實際起飛」時間（澎湖機場資料常較晚更新）=====
+    let departureBoard = new Map();
+    const AIRLINE_IATA_TO_ICAO = { B7: 'UIA', AE: 'MDA', DA: 'DAC' };
+
+    function boardClock(v) {
+        const m = String(v || '').match(/(\d{1,2}):(\d{2})/);
+        return m ? `${Number(m[1])}:${m[2]}` : '';
+    }
+
+    async function fetchDepartureBoards() {
+        try {
+            const token = await getTDXAccessToken();
+            const codes = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
+            const board = new Map();
+            for (const code of codes) {
+                try {
+                    const url = `https://tdx.transportdata.tw/api/basic/v2/Air/FIDS/Airport/Departure/${code}?%24filter=ArrivalAirportID%20eq%20%27MZG%27&%24format=JSON`;
+                    const res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
+                    if (!res.ok) continue;
+                    const list = await res.json();
+                    (Array.isArray(list) ? list : (list.FIDSDepartures || list.Departures || [])).forEach(x => {
+                        const airline = String(x.AirlineID || '').toUpperCase();
+                        const prefix = AIRLINE_IATA_TO_ICAO[airline] || airline;
+                        const digits = String(x.FlightNumber || '').replace(/\D/g, '');
+                        if (!prefix || !digits) return;
+                        board.set(prefix + digits, {
+                            actual: boardClock(x.ActualDepartureTime),
+                            estimated: boardClock(x.EstimatedDepartureTime),
+                            remark: String(x.DepartureRemark || '')
+                        });
+                    });
+                } catch (_) { }
+                await new Promise(r => setTimeout(r, 300));
+            }
+            if (board.size) departureBoard = board;
+        } catch (_) { }
+        applyDepartureBoards();
+        renderFlights();
+    }
+
+    // 澎湖機場資料沒有實際起飛時間時，用起飛機場的實際起飛時間補上，並重新判斷狀態
+    function applyDepartureBoards() {
+        allLiveFlights.forEach(f => {
+            const b = departureBoard.get(f.flight);
+            if (!f.sheetActualStart && f.sheetActualStart !== '') f.sheetActualStart = f.actualStart || '';
+            f.actualStart = f.sheetActualStart || (b && b.actual) || '';
+            f.status = arrivalStatus(f.remark, f.scheduledStart, f.actualStart, f.scheduledEnd, f.actualEnd);
         });
     }
 
