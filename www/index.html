@@ -543,8 +543,10 @@
 
     function getShipColor(fleet, ship) {
         let idx;
-        if (shipColorOrder.has(ship)) {
+        if (ship && shipColorOrder.has(ship)) {
             idx = shipColorOrder.get(ship) % SHIP_PALETTE.length;
+        } else if (fleet && shipColorOrder.has(fleet)) {
+            idx = shipColorOrder.get(fleet) % SHIP_PALETTE.length;
         } else if (fleet) {
             idx = Number(fleet.no) % SHIP_PALETTE.length;
         } else {
@@ -625,6 +627,33 @@
         { no: "40", nameZh: "金八達10號",  nameEn: "Kingbada No.10",        callSign: "",       mmsi: "",          route: "望安 ⇄ 將軍 ⇄ 馬公" },
         { no: "99", nameZh: "澎湖輪",      nameEn: "Penghu",                callSign: "BP3770", mmsi: "416009428", route: "高雄 ⇄ 澎湖" }
     ];
+
+    // 固定出現在船舶清單的船（布袋⇄澎湖 No.1～8、高雄 澎湖輪）
+    const ALWAYS_SHOW_FLEET = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '99']);
+
+    // 一般船舶推斷航線：先比對船名（例如 BAISHA STAR 2 → 白沙之星），再依位置判斷是否行駛在澎湖交通船航線上
+    const localRouteKeys = () => Object.keys(SEA_ROUTES_WAYPOINTS).filter(k => !['布袋 ⇄ 澎湖', '布袋 ➔ 東吉', '東吉 ➔ 七美', '七美 ➔ 馬公', '高雄 ⇄ 澎湖'].includes(k));
+    const normShipEn = v => String(v || '').toUpperCase().replace(/NO\.?\s*\d+/g, '').replace(/[^A-Z]/g, '');
+    const normShipZh = v => String(v || '').replace(/[\s\-－號0-9０-９]/g, '');
+
+    function inferShipRoute(ship, lat, lon, sog) {
+        const en = normShipEn(ship.VesselName?.En || ship.VesselName);
+        const zh = normShipZh(ship.VesselName?.Zh_tw);
+        const byName = TARGET_FLEET.find(f => {
+            const fe = normShipEn(f.nameEn), fz = normShipZh(f.nameZh);
+            if (en.length >= 5 && fe.length >= 5 && (en.includes(fe) || fe.includes(en))) return true;
+            if (zh.length >= 3 && fz.length >= 3 && (zh.includes(fz) || fz.includes(zh))) return true;
+            return false;
+        });
+        if (byName) return byName.route;
+        if (!(sog >= 6)) return '';
+        let best = '', bestDist = Infinity;
+        localRouteKeys().forEach(k => {
+            const ev = evaluateRouteProjection(SEA_ROUTES_WAYPOINTS[k], lat, lon, sog, 0);
+            if (ev.crossTrackDist < bestDist) { bestDist = ev.crossTrackDist; best = k; }
+        });
+        return bestDist <= 1500 ? best : '';
+    }
 
     function findMatchingLiveShip(fleet, liveShips, liveMapByMMSI) {
         const cleanMmsi = String(fleet.mmsi || '').trim();
@@ -956,7 +985,7 @@
                 fillColor: pier.isMajor ? '#e11d48' : '#0d9488',
                 fillOpacity: 1
             }).bindTooltip(pier.name, {
-                permanent: pier.isMajor,
+                permanent: false,
                 direction: 'top',
                 className: pier.isMajor ? 'port-label' : 'pier-label',
                 offset: [0, -6]
@@ -1551,7 +1580,8 @@
         const nameZh = ship.VesselName?.Zh_tw || ship.VesselName?.En || `MMSI: ${mmsi}`;
         const sog = ship.SOG ?? 0;
         const cog = ship.COG ?? ship.TrueHeading ?? 0;
-        const navInfo = analyzeShipNavigation("", lat, lon, sog, cog, false);
+        const inferredRoute = inferShipRoute(ship, lat, lon, sog);
+        const navInfo = inferredRoute ? analyzeShipNavigation(inferredRoute, lat, lon, sog, cog, true) : analyzeShipNavigation("", lat, lon, sog, cog, false);
         const palette = getShipColor(null, ship);
 
         const marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, false, palette.color) }).addTo(shipMarkersLayer);
@@ -1611,7 +1641,7 @@
                 const lat = s.VesselPosition?.PositionLat;
                 const lon = s.VesselPosition?.PositionLon;
                 if (!lat || !lon) return false;
-                if (fleetByLive.get(s)?.no === "99") return true;
+                if (ALWAYS_SHOW_FLEET.has(fleetByLive.get(s)?.no)) return true;
                 return isWithinPenghuRange(lat, lon);
             })
             .map(s => ({ live: s, fleet: fleetByLive.get(s) || null }))
@@ -1622,13 +1652,22 @@
                 return 0;
             });
 
-        shipColorOrder = new Map(entries.map((e, i) => [e.live, i]));
+        TARGET_FLEET.forEach(f => {
+            if (ALWAYS_SHOW_FLEET.has(f.no) && !entries.some(e => e.fleet === f)) entries.push({ live: null, fleet: f });
+        });
+        entries.sort((a, b) => {
+            if (a.fleet && !b.fleet) return -1;
+            if (!a.fleet && b.fleet) return 1;
+            if (a.fleet && b.fleet) return Number(a.fleet.no) - Number(b.fleet.no);
+            return 0;
+        });
+        shipColorOrder = new Map(entries.map((e, i) => [e.live || e.fleet, i]));
         entries.forEach(({ live, fleet }) => {
             if (fleet) renderFleetShip(fleet, live, listEl);
             else renderGeneralShip(live, listEl);
         });
 
-        shipCountText = `船舶 ${entries.length} 艘`;
+        shipCountText = `船舶 ${entries.filter(e => e.live).length} 艘`;
         updateStatusBar();
     }
 
@@ -1645,6 +1684,19 @@
         });
     }
 
+    // ===== 航班顏色：不同航空公司、不同航線各自一色 =====
+    const FLIGHT_ROUTE_COLORS = {
+        MDA: { TSA: '#1e40af', RMQ: '#0369a1', CYI: '#0e7490', TNN: '#4338ca', KHH: '#2563eb', CMJ: '#155e9f' },
+        UIA: { TSA: '#166534', RMQ: '#15803d', CYI: '#4d7c0f', TNN: '#0f766e', KHH: '#059669', CMJ: '#3f6212' },
+        DAC: { TSA: '#9f1239', RMQ: '#b91c1c', CYI: '#c2410c', TNN: '#be123c', KHH: '#dc2626', CMJ: '#c8102e' }
+    };
+
+    function getFlightColor(f) {
+        const code = String(f.flight || '').slice(0, 3);
+        const color = FLIGHT_ROUTE_COLORS[code]?.[f.DepartureAirportID] || getAirlineColor(f.airline).color;
+        return { color, tint: color + '1f' };
+    }
+
     // ===== 航機即時位置：多個免費來源同時讀取，同一班機取最新一筆 =====
     let liveAircraftByCallsign = new Map();
 
@@ -1656,6 +1708,28 @@
         const res = await withTimeout(fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' } }), ms);
         if (!res.ok) throw new Error(String(res.status));
         return await withTimeout(res.json(), ms);
+    }
+
+    // 轉接網址用 JSONP 讀取（網頁版不受瀏覽器跨站限制）
+    function loadRelayJSONP(ms = 25000) {
+        return new Promise((resolve, reject) => {
+            const handler = '__aircraftCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            const script = document.createElement('script');
+            let finished = false;
+            const cleanup = () => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timer);
+                script.remove();
+                try { delete window[handler]; } catch (_) { window[handler] = undefined; }
+            };
+            window[handler] = data => { resolve(data); cleanup(); };
+            script.src = `${AIRCRAFT_POSITION_URL}${AIRCRAFT_POSITION_URL.includes('?') ? '&' : '?'}callback=${handler}&t=${Date.now()}`;
+            script.async = true;
+            script.onerror = () => { cleanup(); reject(new Error('轉接無法連線')); };
+            const timer = setTimeout(() => { cleanup(); reject(new Error('轉接逾時')); }, ms);
+            document.head.appendChild(script);
+        });
     }
 
     function putAircraft(target, callsign, rec) {
@@ -1705,37 +1779,134 @@
             ...ADSB_SOURCES.map(url => fetchJSON(url).then(d => { addAdsbStates(merged, d); okCount++; }).catch(() => {})),
             fetchJSON(OPENSKY_DIRECT_URL).then(d => { if (Array.isArray(d?.states)) { addOpenSkyStates(merged, d); okCount++; } }).catch(() => {}),
             AIRCRAFT_POSITION_URL
-                ? fetchJSON(AIRCRAFT_POSITION_URL).then(d => { if (Array.isArray(d?.states)) { addOpenSkyStates(merged, d); okCount++; } }).catch(() => {})
-                : Promise.resolve()
+                ? loadRelayJSONP().then(d => { if (Array.isArray(d?.states)) { addOpenSkyStates(merged, d); okCount++; } }).catch(() => {})
+                : Promise.resolve(),
+            fetchRunwayWind()
         ];
         await Promise.all(tasks);
 
         if (okCount > 0) {
             liveAircraftByCallsign = merged;
-            aircraftStatusText = `航機位置更新 ${clockNow()}`;
+            aircraftStatusText = `航機即時位置更新 ${clockNow()}`;
             aircraftStatusWarn = false;
         } else {
             liveAircraftByCallsign = new Map();
-            aircraftStatusText = '⚠ 航機即時位置暫時無法取得';
+            aircraftStatusText = '⚠ 航機即時位置暫時無法取得（改依時間推算）';
             aircraftStatusWarn = true;
         }
         updateStatusBar();
         renderFlights();
     }
 
-    // 只使用真實即時位置（空中）；查無即時位置則不顯示
+    // ===== 降落跑道：依澎湖機場風向判斷（北風用 02 跑道從南邊進場；南風用 20 跑道從北邊進場）=====
+    let runwayInUse = null;
+
+    async function fetchRunwayWind() {
+        try {
+            const mzg = AIRPORTS.MZG;
+            const d = await fetchJSON(`https://api.open-meteo.com/v1/forecast?latitude=${mzg.lat}&longitude=${mzg.lon}&current=wind_direction_10m,wind_speed_10m&wind_speed_unit=ms&timezone=Asia%2FTaipei`);
+            const dir = d?.current?.wind_direction_10m;
+            if (typeof dir === 'number') runwayInUse = Math.cos((dir - 20) * Math.PI / 180) >= 0 ? '02' : '20';
+        } catch (_) { }
+    }
+
+    function currentRunway() {
+        if (runwayInUse) return runwayInUse;
+        const month = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Taipei', month: 'numeric' }).format(new Date()));
+        return month >= 5 && month <= 9 ? '20' : '02';
+    }
+
+    // 進場路線（澎湖機場跑道方向 020°／200°）
+    const APPROACH_POINTS = {
+        '02': { east: [23.38, 119.78], faf: [23.408, 119.570] },   // 由澎湖東側南下，在南方轉彎，從南邊對準 02 跑道
+        '20': { east: [23.74, 119.80], faf: [23.712, 119.689] }    // 由北方進場，從北邊對準 20 跑道
+    };
+
+    function flightRoutePoints(depCode) {
+        const dep = AIRPORTS[depCode], mzg = AIRPORTS.MZG;
+        const rwy = APPROACH_POINTS[currentRunway()];
+        if (depCode === 'CMJ') return [[dep.lat, dep.lon], rwy.faf, [mzg.lat, mzg.lon]];
+        return [[dep.lat, dep.lon], rwy.east, rwy.faf, [mzg.lat, mzg.lon]];
+    }
+
+    // 非等速：起飛後加速、中段巡航、進場減速；回傳已飛距離比例
+    function distanceFraction(t) {
+        const a = 0.12, b = 0.62, v0 = 0.4, v1 = 0.45;
+        const seg = x => {
+            const p1 = Math.min(x, a);
+            let d = v0 * p1 + (1 - v0) * p1 * p1 / (2 * a);
+            if (x > a) d += Math.min(x, b) - a;
+            if (x > b) { const q = x - b; d += q - (1 - v1) * q * q / (2 * (1 - b)); }
+            return d;
+        };
+        return seg(Math.max(0, Math.min(1, t))) / seg(1);
+    }
+
+    function pointAlong(points, fraction) {
+        const lens = [];
+        let total = 0;
+        for (let i = 0; i < points.length - 1; i++) {
+            const d = getDistanceMeters(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]);
+            lens.push(d); total += d;
+        }
+        let target = total * fraction;
+        for (let i = 0; i < lens.length; i++) {
+            if (target <= lens[i] || i === lens.length - 1) {
+                const r = lens[i] ? Math.min(1, target / lens[i]) : 0;
+                const A = points[i], B = points[i + 1];
+                const lat = A[0] + (B[0] - A[0]) * r, lon = A[1] + (B[1] - A[1]) * r;
+                const remainMeters = (lens[i] - lens[i] * r) + lens.slice(i + 1).reduce((s, x) => s + x, 0);
+                return { lat, lon, bearing: getBearing(A[0], A[1], B[0], B[1]), remainKm: remainMeters / 1000 };
+            }
+            target -= lens[i];
+        }
+        return null;
+    }
+
+    // 起飛與抵達時間：實際起飛優先；預估抵達優先，沒有時依起飛延誤順延
+    function flightTimes(f) {
+        const sDep = parseClockMinutes(f.scheduledStart), aDep = parseClockMinutes(f.actualStart);
+        const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
+        const dep = aDep ?? sDep;
+        let arr = eArr ?? sArr;
+        const duration = (sDep !== null && sArr !== null && sArr > sDep) ? sArr - sDep : Math.max(AIRPORTS[f.DepartureAirportID]?.flightMins || 35, 20);
+        if (aDep !== null && (eArr === null || (sArr !== null && eArr === sArr && aDep !== sDep))) arr = aDep + duration;
+        if (dep !== null && arr === null) arr = dep + duration;
+        return { dep, arr };
+    }
+
+    const IN_FLIGHT_CLASSES = new Set(['OnFlying', 'CommingSoon', 'Landing', 'OnTime', 'Delayed']);
+
+    function estimateInFlightPosition(f) {
+        if (!IN_FLIGHT_CLASSES.has(f.status.className) || !AIRPORTS[f.DepartureAirportID]) return null;
+        if (f.status.className === 'Delayed' && !f.actualStart) return null;
+        const { dep, arr } = flightTimes(f);
+        if (dep === null || arr === null || arr <= dep) return null;
+        const now = taipeiNowMinutes();
+        const t = (now - dep) / (arr - dep);
+        if (t <= 0 || t >= 1) return null;
+        const p = pointAlong(flightRoutePoints(f.DepartureAirportID), distanceFraction(t));
+        if (!p) return null;
+        return { isLive: false, lat: p.lat, lon: p.lon, bearing: p.bearing, distKm: Math.round(p.remainKm), remainMins: Math.max(1, Math.round(arr - now)), arrMins: arr };
+    }
+
+    // 有即時位置（空中）用即時位置；沒有時依時間推算
     function getFlightPosition(f) {
         const live = liveAircraftByCallsign.get(f.flight);
-        if (!live || live.onGround) return null;
-        const mzg = AIRPORTS.MZG;
-        const distKm = getDistanceMeters(live.lat, live.lon, mzg.lat, mzg.lon) / 1000;
-        const remainMins = live.velocity > 0 ? Math.max(1, Math.round(distKm / (live.velocity * 3.6) * 60)) : null;
-        return {
-            lat: live.lat, lon: live.lon, bearing: live.track || 0,
-            altitudeM: live.altitude !== null && live.altitude !== undefined ? Math.round(live.altitude) : null,
-            speedKmh: live.velocity !== null && live.velocity !== undefined ? Math.round(live.velocity * 3.6) : null,
-            distKm: Math.round(distKm), remainMins
-        };
+        if (live && !live.onGround) {
+            const mzg = AIRPORTS.MZG;
+            const distKm = getDistanceMeters(live.lat, live.lon, mzg.lat, mzg.lon) / 1000;
+            const remainMins = live.velocity > 0 ? Math.max(1, Math.round(distKm / (live.velocity * 3.6) * 60)) : null;
+            return {
+                isLive: true,
+                lat: live.lat, lon: live.lon, bearing: live.track || 0,
+                altitudeM: live.altitude !== null && live.altitude !== undefined ? Math.round(live.altitude) : null,
+                speedKmh: live.velocity !== null && live.velocity !== undefined ? Math.round(live.velocity * 3.6) : null,
+                distKm: Math.round(distKm), remainMins
+            };
+        }
+        if (live && live.onGround) return null;
+        return estimateInFlightPosition(f);
     }
 
     function formatClock(totalMinutes) {
@@ -1744,8 +1915,13 @@
     }
 
     function getEtaClock(f, pos) {
-        if (pos && pos.remainMins) return formatClock(taipeiNowMinutes() + pos.remainMins);
-        return f.actualEnd || f.scheduledEnd || '—';
+        if (pos && pos.isLive && pos.remainMins) return formatClock(taipeiNowMinutes() + pos.remainMins);
+        const { arr } = flightTimes(f);
+        return arr !== null ? formatClock(arr) : (f.actualEnd || f.scheduledEnd || '—');
+    }
+
+    function departureLabel(f) {
+        return f.actualStart ? `實際起飛 ${f.actualStart}` : `表定起飛 ${f.scheduledStart || '—'}`;
     }
 
     function renderFlights() {
@@ -1781,7 +1957,7 @@
             const depCode = f.DepartureAirportID || '';
             const depName = AIRPORTS[depCode]?.name || f.place || depCode;
             const arrName = AIRPORTS.MZG.name;
-            const palette = getAirlineColor(f.airline);
+            const palette = getFlightColor(f);
             const sc = FLIGHT_STATUS_COLORS[f.status.className] || FLIGHT_STATUS_COLORS.OnTime;
 
             const pos = getFlightPosition(f);
@@ -1793,21 +1969,26 @@
                 });
                 planeMarker.on('tooltipopen', e => {
                     const el = e.tooltip.getElement();
-                    if (el) { el.style.background = palette.color; el.style.border = `1.5px solid ${palette.tint}`; }
+                    if (el) { el.style.background = palette.color; el.style.border = '1.5px solid #ffffff'; }
                 });
                 planeMarker.bindTooltip(
                     `<div class="flight-tip-line1">✈️ ${f.flight} (${depName})</div>` +
-                    `<div class="flight-tip-line2">預計抵達 ${etaClock}</div>`, {
+                    `<div class="flight-tip-line2">${departureLabel(f)}｜預計抵達 ${etaClock}</div>`, {
                     permanent: true, direction: 'right', offset: [12, 0], className: 'flight-tooltip'
                 });
                 planeMarker.addTo(flightMarkersLayer);
+                const posLines = pos.isLive
+                    ? `<b>位置：</b>即時位置<br>
+                       <b>高度：</b>${pos.altitudeM !== null ? pos.altitudeM + ' 公尺' : '—'}｜<b>速度：</b>${pos.speedKmh !== null ? pos.speedKmh + ' 公里／時' : '—'}<br>
+                       <b>距澎湖機場：</b>約 ${pos.distKm} 公里${pos.remainMins ? `（約 ${pos.remainMins} 分鐘）` : ''}<br>`
+                    : `<b>位置：</b>依時間推算（${currentRunway()} 跑道進場路線）<br>
+                       <b>剩餘航程：</b>約 ${pos.distKm} 公里（約 ${pos.remainMins} 分鐘）<br>`;
                 planeMarker.bindPopup(`
                     <div style="font-size:13px; line-height:1.65; min-width:220px;">
                         <strong style="font-size:15px; color:${palette.color};">✈️ ${f.flight} ${f.airline}</strong><br>
                         <b>航線：</b>${depName} ➔ ${arrName}<br>
                         <b>狀態：</b>${f.status.text}<br>
-                        <b>高度：</b>${pos.altitudeM !== null ? pos.altitudeM + ' 公尺' : '—'}｜<b>速度：</b>${pos.speedKmh !== null ? pos.speedKmh + ' 公里／時' : '—'}<br>
-                        <b>距澎湖機場：</b>約 ${pos.distKm} 公里${pos.remainMins ? `（約 ${pos.remainMins} 分鐘）` : ''}<br>
+                        ${posLines}
                         <b>預計抵達：</b>${etaClock}<br>
                         <b>經緯度：</b>${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)}<br>
                         <b>起飛 (表定／實際)：</b>${f.scheduledStart || '—'} / ${f.actualStart || '—'}<br>
@@ -1816,9 +1997,9 @@
                 `);
             }
 
-            const posLine = pos
+            const posLine = !pos ? '' : pos.isLive
                 ? `<span style="grid-column: span 2; color:#0f766e; font-weight:700;">📡 即時位置：距澎湖機場約 ${pos.distKm} 公里（預計 ${etaClock} 抵達）</span>`
-                : '';
+                : `<span style="grid-column: span 2; color:#0f766e; font-weight:700;">📡 推算位置：剩餘約 ${pos.distKm} 公里（預計 ${etaClock} 抵達）</span>`;
 
             const card = document.createElement('div');
             card.className = 'ship-card';
@@ -1842,7 +2023,7 @@
                     map.flyTo([pos.lat, pos.lon], 10, { duration: 0.8 });
                     planeMarker.openPopup();
                 } else {
-                    alert(`【${f.flight}】目前查無即時位置。`);
+                    alert(`【${f.flight}】目前不在空中，查無位置。`);
                 }
             };
             listEl.appendChild(card);
