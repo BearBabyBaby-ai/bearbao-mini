@@ -318,11 +318,13 @@
         .config-box .layer-toggles, .config-box .port-shortcuts, .config-box .btn-fetch { display: none !important; }
         #tab-monitor { flex: 1; min-height: 0; height: auto !important; }
         #tab-tide { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        #tab-standby { flex: 1; min-height: 0; display: flex; }
+        #tab-standby iframe { flex: 1; width: 100%; height: 100%; border: 0; display: block; background: #eef2f6; }
         #view-tide { min-height: 100%; }
         #bottom-nav {
             flex: 0 0 auto;
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             background: #ffffff;
             border-top: 1px solid #cbd5e1;
             box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
@@ -485,10 +487,12 @@
       </div>
     </section>
 </div>
+<div id="tab-standby" class="tab-pane" hidden><iframe id="standby-frame" title="澎湖航空站候補資訊"></iframe></div>
 
 <nav id="bottom-nav">
     <button type="button" data-tab="monitor" class="active"><span class="ic">🚢</span>船舶航班</button>
     <button type="button" data-tab="tide"><span class="ic">🌊</span>潮汐分海</button>
+    <button type="button" data-tab="standby"><span class="ic">🎫</span>候補資訊</button>
 </nav>
 
 <script src="lib/leaflet/leaflet.js"></script>
@@ -533,10 +537,31 @@
         general: { color: '#64748b', tint: '#f8fafc' }
     };
 
-    function getShipColor(fleet) {
-        if (fleet && fleet.no === "99") return SHIP_COLORS.penghu;
-        if (fleet) return SHIP_COLORS.fleet;
-        return SHIP_COLORS.general;
+    const SHIP_PALETTE = ['#0891b2', '#ea580c', '#16a34a', '#c026d3', '#2563eb', '#dc2626', '#0d9488', '#ca8a04',
+        '#7c3aed', '#db2777', '#65a30d', '#4f46e5', '#b45309', '#0284c7', '#be185d', '#15803d', '#9333ea', '#a16207'];
+    let shipColorOrder = new Map();
+
+    function getShipColor(fleet, ship) {
+        let idx;
+        if (shipColorOrder.has(ship)) {
+            idx = shipColorOrder.get(ship) % SHIP_PALETTE.length;
+        } else if (fleet) {
+            idx = Number(fleet.no) % SHIP_PALETTE.length;
+        } else {
+            const key = String(ship?.MMSI || ship?.VesselName?.Zh_tw || ship?.VesselName?.En || '');
+            let h = 0;
+            for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+            idx = h % SHIP_PALETTE.length;
+        }
+        const color = SHIP_PALETTE[idx];
+        return { color, tint: color + '1f' };
+    }
+
+    function colorShipTooltip(marker, palette) {
+        marker.on('tooltipopen', e => {
+            const el = e.tooltip.getElement();
+            if (el) { el.style.color = palette.color; el.style.borderColor = palette.color; el.style.background = '#ffffff'; }
+        });
     }
 
     function applyCardColor(card, palette) {
@@ -1429,8 +1454,8 @@
         }
     }
 
-    function createVesselIcon(cog = 0, sog = 0, isSpecial = false) {
-        const fillColor = isSpecial ? '#d97706' : (sog > 0.5 ? '#0d9488' : '#0284c7');
+    function createVesselIcon(cog = 0, sog = 0, isSpecial = false, color = '') {
+        const fillColor = color || (isSpecial ? '#d97706' : (sog > 0.5 ? '#0d9488' : '#0284c7'));
         return L.divIcon({
             className: 'vessel-icon',
             html: `<div style="transform: rotate(${cog}deg); width: 24px; height: 24px; display:flex; align-items:center; justify-content:center;">
@@ -1451,7 +1476,7 @@
         const activeCallSign = fleet.callSign || live?.CallSign || '';
         const twPortUrl = activeCallSign ? `https://sdci.twport.com.tw/khbweb/AIS_OSM.aspx?SIGNAL=${activeCallSign}` : '';
         const defaultRouteDef = SEA_ROUTES_WAYPOINTS[fleet.route] || SEA_ROUTES_WAYPOINTS["布袋 ⇄ 澎湖"];
-        const palette = getShipColor(fleet);
+        const palette = getShipColor(fleet, live);
         let navInfo = {
             origin: defaultRouteDef.portA,
             destination: defaultRouteDef.portB,
@@ -1466,7 +1491,8 @@
             const isPenghu = fleet.no === "99";
             navInfo = analyzeShipNavigation(fleet.route, lat, lon, sog, cog, true);
 
-            marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, isPenghu) }).addTo(shipMarkersLayer);
+            marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, isPenghu, palette.color) }).addTo(shipMarkersLayer);
+            colorShipTooltip(marker, palette);
             marker.bindTooltip(`No.${fleet.no} ${fleet.nameZh} (${sog} kts)`, {
                 permanent: true, direction: 'right', offset: [12, 0],
                 className: isPenghu ? 'ship-name-tooltip penghu-ferry' : 'ship-name-tooltip'
@@ -1526,9 +1552,10 @@
         const sog = ship.SOG ?? 0;
         const cog = ship.COG ?? ship.TrueHeading ?? 0;
         const navInfo = analyzeShipNavigation("", lat, lon, sog, cog, false);
-        const palette = getShipColor(null);
+        const palette = getShipColor(null, ship);
 
-        const marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, false) }).addTo(shipMarkersLayer);
+        const marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, false, palette.color) }).addTo(shipMarkersLayer);
+        colorShipTooltip(marker, palette);
         marker.bindTooltip(`${nameZh} (${sog} kts)`, { permanent: true, direction: 'right', offset: [12, 0], className: 'ship-name-tooltip' });
         marker.bindPopup(`
             <div style="font-size:13px; line-height:1.65; min-width:240px;">
@@ -1548,7 +1575,7 @@
         applyCardColor(card, palette);
         card.innerHTML = `
             <div class="ship-title">
-                <span>🚢 ${nameZh}<span class="route-tag" style="background:#f1f5f9; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
+                <span>🚢 ${nameZh}<span class="route-tag" style="background:${palette.tint}; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
                 <span class="badge-online">AIS 線上</span>
             </div>
             <div class="ship-meta">
@@ -1595,6 +1622,7 @@
                 return 0;
             });
 
+        shipColorOrder = new Map(entries.map((e, i) => [e.live, i]));
         entries.forEach(({ live, fleet }) => {
             if (fleet) renderFleetShip(fleet, live, listEl);
             else renderGeneralShip(live, listEl);
@@ -2332,15 +2360,17 @@ window.onTideTabHidden = () => { currentView = ''; };
 
 <script>
     function showTab(name) {
-        const isMonitor = name !== 'tide';
-        document.getElementById('tab-monitor').hidden = !isMonitor;
-        document.getElementById('tab-tide').hidden = isMonitor;
-        document.querySelectorAll('#bottom-nav [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === (isMonitor ? 'monitor' : 'tide')));
-        if (isMonitor) {
-            if (window.onTideTabHidden) window.onTideTabHidden();
-            setTimeout(() => map.invalidateSize(), 50);
-        } else if (window.onTideTabShown) {
-            window.onTideTabShown();
+        const tab = ['tide', 'standby'].includes(name) ? name : 'monitor';
+        document.getElementById('tab-monitor').hidden = tab !== 'monitor';
+        document.getElementById('tab-tide').hidden = tab !== 'tide';
+        document.getElementById('tab-standby').hidden = tab !== 'standby';
+        document.querySelectorAll('#bottom-nav [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+        if (tab !== 'tide' && window.onTideTabHidden) window.onTideTabHidden();
+        if (tab === 'monitor') setTimeout(() => map.invalidateSize(), 50);
+        if (tab === 'tide' && window.onTideTabShown) window.onTideTabShown();
+        if (tab === 'standby') {
+            const f = document.getElementById('standby-frame');
+            if (!f.getAttribute('src')) f.setAttribute('src', 'standby.html');
         }
     }
     document.getElementById('bottom-nav').addEventListener('click', e => {
