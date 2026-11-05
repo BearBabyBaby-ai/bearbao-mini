@@ -171,7 +171,7 @@
             background: rgba(255, 255, 255, 0.94); color: #0369a1; border: 1.5px solid #0284c7; border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: 700; white-space: nowrap;
         }
         .ship-name-tooltip.penghu-ferry { color: #b45309; border-color: #d97706; background: #fffbeb; }
-        .flight-tooltip { color: #ffffff; border-radius: 4px; padding: 3px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
+        .flight-tooltip { color: #ffffff; border-radius: 4px; padding: 3px 7px; font-size: 10px !important; font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
         .flight-tip-line1 { line-height: 1.35; }
         .flight-tip-line2 { line-height: 1.35; margin-top: 2px; padding-top: 2px; border-top: 1px solid rgba(255,255,255,0.45); font-weight: 600; }
 
@@ -1486,7 +1486,7 @@
                 place: r[2],
                 DepartureAirportID: extractAirportCode(r[2]),
                 ArrivalAirportID: 'MZG',
-                scheduledStart: r[4], actualStart: r[5], scheduledEnd: r[6], actualEnd: r[7], remark: r[8],
+                scheduledStart: r[4], actualStart: r[5], scheduledEnd: r[6], actualEnd: r[7], remark: r[8], aircraft: r[3],
                 status: arrivalStatus(r[8], r[4], r[5], r[6], r[7])
             })).filter(f => allowedAirports.includes(f.DepartureAirportID));
             applyDepartureBoards();
@@ -1689,16 +1689,26 @@
         updateStatusBar();
     }
 
-    function createAirplaneIcon(bearing = 0, color = '#7e22ce') {
+    // 地圖飛機圖示依機型大小：小型螺旋槳（DHC-6 等）較小、ATR 中型、噴射客機最大
+    function planeIconSize(aircraft) {
+        const t = String(aircraft || '').toUpperCase().replace(/\s+/g, '');
+        if (/DHC|DO228|DORNIER|BN2|ISLANDER|CESSNA|C208/.test(t)) return 28;
+        if (/A3\d\d|A2\d\d|B7\d\d|737|738|321|320|330|ERJ|E19|E17|CRJ/.test(t)) return 44;
+        if (/ATR|AT7|AT4|Q400|DH8|DASH/.test(t)) return 36;
+        return 34;
+    }
+
+    function createAirplaneIcon(bearing = 0, color = '#7e22ce', size = 34) {
+        const box = size + 4;
         return L.divIcon({
             className: 'vessel-icon',
-            html: `<div style="transform: rotate(${bearing}deg); width: 28px; height: 28px; display:flex; align-items:center; justify-content:center;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="#ffffff" stroke-width="1.5">
+            html: `<div style="transform: rotate(${bearing}deg); width: ${box}px; height: ${box}px; display:flex; align-items:center; justify-content:center;">
+                    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}" stroke="#ffffff" stroke-width="1.2">
                         <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
                     </svg>
                    </div>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14]
+            iconSize: [box, box],
+            iconAnchor: [box / 2, box / 2]
         });
     }
 
@@ -1842,11 +1852,11 @@
 
     // 起飛後先出海再沿台灣海峽飛行（不穿越本島山區）
     const DEPARTURE_EXITS = {
-        TSA: [[25.10, 121.22], [24.95, 120.95], [24.30, 120.35]],
-        RMQ: [[24.15, 120.40]],
-        CYI: [[23.42, 120.05]],
-        TNN: [[23.05, 120.00]],
-        KHH: [[22.75, 120.05]],
+        TSA: [[25.07, 121.30], [24.98, 120.95], [24.30, 120.35]],
+        RMQ: [[24.18, 120.45]],
+        CYI: [[23.45, 120.15], [23.42, 120.00]],
+        TNN: [[22.95, 120.05]],
+        KHH: [[22.59, 120.20]],
         CMJ: []
     };
 
@@ -1860,7 +1870,7 @@
 
     // 非等速：起飛後加速、中段巡航、進場減速；回傳已飛距離比例
     function distanceFraction(t) {
-        const a = 0.12, b = 0.62, v0 = 0.4, v1 = 0.45;
+        const a = 0.08, b = 0.62, v0 = 0.7, v1 = 0.45;
         const seg = x => {
             const p1 = Math.min(x, a);
             let d = v0 * p1 + (1 - v0) * p1 * p1 / (2 * a);
@@ -1893,14 +1903,18 @@
     }
 
     // 起飛與抵達時間：實際起飛優先；預估抵達優先，沒有時依起飛延誤順延
+    // 實際空中飛行時間（分鐘）：表定時間含滑行與緩衝，比實際飛行長，直接用會讓位置落後
+    const AIRBORNE_MINUTES = { TSA: 48, RMQ: 28, CYI: 22, TNN: 22, KHH: 27, CMJ: 15 };
+
+    // 起飛：實際起飛優先。抵達：預估抵達有更新（不同於表定）就用預估，否則用起飛時間＋實際飛行時間
     function flightTimes(f) {
         const sDep = parseClockMinutes(f.scheduledStart), aDep = parseClockMinutes(f.actualStart);
         const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
         const dep = aDep ?? (f.knownNotDeparted ? null : sDep);
-        let arr = eArr ?? sArr;
-        const duration = (sDep !== null && sArr !== null && sArr > sDep) ? sArr - sDep : Math.max(AIRPORTS[f.DepartureAirportID]?.flightMins || 35, 20);
-        if (aDep !== null && (eArr === null || (sArr !== null && eArr === sArr && aDep !== sDep))) arr = aDep + duration;
-        if (dep !== null && arr === null) arr = dep + duration;
+        if (dep === null) return { dep: null, arr: eArr ?? sArr };
+        const airborne = AIRBORNE_MINUTES[f.DepartureAirportID] || 30;
+        const estimateUpdated = eArr !== null && (sArr === null || eArr !== sArr);
+        const arr = (estimateUpdated && eArr > dep) ? eArr : dep + airborne;
         return { dep, arr };
     }
 
@@ -1949,6 +1963,11 @@
         return arr !== null ? formatClock(arr) : (f.actualEnd || f.scheduledEnd || '—');
     }
 
+    // 標籤裡的飛機符號跟地圖上的飛機圖示同一個角度
+    function planeGlyph(bearing) {
+        return `<svg width="11" height="11" viewBox="0 0 24 24" fill="#ffffff" style="vertical-align:-1px; transform: rotate(${Math.round(bearing || 0)}deg);"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`;
+    }
+
     function departureLabel(f) {
         return f.actualStart ? `實際起飛 ${f.actualStart}` : `表定起飛 ${f.scheduledStart || '—'}`;
     }
@@ -1994,16 +2013,16 @@
             let planeMarker = null;
             if (pos) {
                 planeMarker = L.marker([pos.lat, pos.lon], {
-                    icon: createAirplaneIcon(pos.bearing, palette.color)
+                    icon: createAirplaneIcon(pos.bearing, palette.color, planeIconSize(f.aircraft))
                 });
                 planeMarker.on('tooltipopen', e => {
                     const el = e.tooltip.getElement();
                     if (el) { el.style.background = palette.color; el.style.border = '1.5px solid #ffffff'; }
                 });
                 planeMarker.bindTooltip(
-                    `<div class="flight-tip-line1">✈️ ${f.flight} (${depName})</div>` +
+                    `<div class="flight-tip-line1">${planeGlyph(pos.bearing)} ${f.flight} (${depName})</div>` +
                     `<div class="flight-tip-line2">${departureLabel(f)}｜預計抵達 ${etaClock}</div>`, {
-                    permanent: true, direction: 'right', offset: [12, 0], className: 'flight-tooltip'
+                    permanent: true, direction: 'right', offset: [Math.round(planeIconSize(f.aircraft) / 2) + 2, 0], className: 'flight-tooltip'
                 });
                 planeMarker.addTo(flightMarkersLayer);
                 const posLines = pos.isLive
