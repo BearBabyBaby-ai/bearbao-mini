@@ -614,12 +614,12 @@
         { no: "27", nameZh: "光正3號",     nameEn: "Kuang Cheng No.3",      callSign: "BK2185",       mmsi: "416001583",          route: "馬公 ⇄ 望安 ⇄ 將軍" },
         { no: "28", nameZh: "白沙之星",    nameEn: "Baisha Star",           callSign: "BP2109",       mmsi: "416004529",          route: "赤崁 ⇄ 吉貝 ⇄ 目斗" },
         { no: "29", nameZh: "旗豐3號",     nameEn: "Qifeng No.3",           callSign: "",       mmsi: "416005372",          route: "赤崁 ⇄ 吉貝" },
-        { no: "30", nameZh: "岳興號",      nameEn: "Yue Sing",              callSign: "",       mmsi: "416001824",          route: "岐頭 ⇄ 鳥嶼" },
-        { no: "31", nameZh: "吉鴻號",      nameEn: "Ji Hong",               callSign: "",       mmsi: "416001825",          route: "岐頭 ⇄ 鳥嶼" },
-        { no: "32", nameZh: "愛國號",      nameEn: "Aiguo",                 callSign: "",       mmsi: "416001826",          route: "岐頭 ⇄ 鳥嶼" },
-        { no: "33", nameZh: "員貝號",      nameEn: "Yuanbei",               callSign: "",       mmsi: "416001829",          route: "岐頭 ⇄ 員貝" },
-        { no: "34", nameZh: "鉅航8號",     nameEn: "Juhang No.8",           callSign: "",       mmsi: "416005411",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
-        { no: "35", nameZh: "鉅航18號",    nameEn: "Juhang No.18",          callSign: "",       mmsi: "416005412",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
+        { no: "30", nameZh: "岳興號",      nameEn: "Yue Sing",              callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼" },
+        { no: "31", nameZh: "吉鴻號",      nameEn: "Ji Hong",               callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼" },
+        { no: "32", nameZh: "愛國號",      nameEn: "Aiguo",                 callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼" },
+        { no: "33", nameZh: "員貝號",      nameEn: "Yuanbei",               callSign: "",       mmsi: "",          route: "岐頭 ⇄ 員貝" },
+        { no: "34", nameZh: "鉅航8號",     nameEn: "Juhang No.8",           callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
+        { no: "35", nameZh: "鉅航18號",    nameEn: "Juhang No.18",          callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
         { no: "36", nameZh: "鉅航68號",    nameEn: "Juhang No.68",          callSign: "",       mmsi: "416006128",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
         { no: "37", nameZh: "鉅航168號",   nameEn: "Juhang No.168",         callSign: "",       mmsi: "416007294",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
         { no: "38", nameZh: "望安之星",    nameEn: "Wangan Star",           callSign: "BP3752",       mmsi: "416009165", route: "馬公 ⇄ 望安 ⇄ 將軍 ⇄ 南方四島" },
@@ -1444,8 +1444,7 @@
         if (lower.includes('cancel') || lower.includes('取消')) return { text: '取消航班 Cancelled', className: 'Cancelled', history: isOlderThan(scheduledEnd) };
         if (lower.includes('delay') || lower.includes('延誤')) return { text: '延誤 Delayed', className: 'Delayed', history: isOlderThan(end) };
         if (lower.includes('on time') || lower.includes('準時') || !raw) {
-            if (!normalizeText(actualStart)) return { text: '待起飛 Waiting', className: 'Waiting', history: false };
-            const startDiff = minutesFromNow(actualStart);
+            const startDiff = minutesFromNow(actualStart || scheduledStart);
             const endDiff = minutesFromNow(end);
             if (startDiff !== null && endDiff !== null) {
                 if (startDiff > 0 && endDiff > 30) return { text: '待起飛 Waiting', className: 'Waiting', history: false };
@@ -1897,7 +1896,7 @@
     function flightTimes(f) {
         const sDep = parseClockMinutes(f.scheduledStart), aDep = parseClockMinutes(f.actualStart);
         const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
-        const dep = aDep;
+        const dep = aDep ?? (f.knownNotDeparted ? null : sDep);
         let arr = eArr ?? sArr;
         const duration = (sDep !== null && sArr !== null && sArr > sDep) ? sArr - sDep : Math.max(AIRPORTS[f.DepartureAirportID]?.flightMins || 35, 20);
         if (aDep !== null && (eArr === null || (sArr !== null && eArr === sArr && aDep !== sDep))) arr = aDep + duration;
@@ -1909,7 +1908,7 @@
 
     function estimateInFlightPosition(f) {
         if (!IN_FLIGHT_CLASSES.has(f.status.className) || !AIRPORTS[f.DepartureAirportID]) return null;
-        if (!f.actualStart) return null;   // 沒有實際起飛時間＝尚未起飛，不推算
+        if (!f.actualStart && f.knownNotDeparted) return null;   // 起飛機場顯示尚未起飛，不推算
         const { dep, arr } = flightTimes(f);
         if (dep === null || arr === null || arr <= dep) return null;
         const now = taipeiNowMinutes();
@@ -2106,7 +2105,11 @@
             const b = departureBoard.get(f.flight);
             if (!f.sheetActualStart && f.sheetActualStart !== '') f.sheetActualStart = f.actualStart || '';
             f.actualStart = f.sheetActualStart || (b && b.actual) || '';
-            f.status = arrivalStatus(f.remark, f.scheduledStart, f.actualStart, f.scheduledEnd, f.actualEnd);
+            f.knownNotDeparted = !f.actualStart && Boolean(b) && !b.actual;
+            const times = flightTimes(f);
+            const endForStatus = (f.actualStart && times.arr !== null) ? formatClock(times.arr) : f.actualEnd;
+            f.status = arrivalStatus(f.remark, f.scheduledStart, f.actualStart, f.scheduledEnd, endForStatus);
+            if (f.knownNotDeparted && ['OnFlying', 'CommingSoon', 'Landing', 'OnTime'].includes(f.status.className)) f.status = { text: '待起飛 Waiting', className: 'Waiting', history: false };
         });
     }
 
