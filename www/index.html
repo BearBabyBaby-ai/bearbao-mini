@@ -1802,7 +1802,17 @@
         });
     }
 
+    // 航機即時位置每 30 秒讀一次（船舶、航班資料維持原本的更新間隔）
+    const POSITION_REFRESH_MS = 30 * 1000;
+    let positionsBusy = false;
+
     async function fetchAircraftPositions() {
+        if (positionsBusy) return;
+        positionsBusy = true;
+        try { await loadAircraftPositions(); } finally { positionsBusy = false; }
+    }
+
+    async function loadAircraftPositions() {
         const merged = new Map();
         let okCount = 0;
         const tasks = [
@@ -1849,13 +1859,13 @@
 
     // 進場路線（澎湖機場跑道方向 020°／200°）
     const APPROACH_POINTS = {
-        '02': { east: [23.38, 119.78], faf: [23.408, 119.570] },   // 由澎湖東側南下，在南方轉彎，從南邊對準 02 跑道
+        '02': { east: [23.39, 119.67], faf: [23.38, 119.59] },     // 由澎湖東南側切入，在南方往西轉，再從南邊對準 02 跑道（依真實航跡）
         '20': { east: [23.74, 119.80], faf: [23.712, 119.689] }    // 由北方進場，從北邊對準 20 跑道
     };
 
     // 起飛後先出海再沿台灣海峽飛行（不穿越本島山區）
     const DEPARTURE_EXITS = {
-        TSA: [[25.07, 121.30], [24.98, 120.95], [24.30, 120.35]],
+        TSA: [[25.035, 121.638], [25.009, 121.622], [24.738, 121.173], [23.951, 120.125]],   // 往東起飛後回轉，經新竹上空斜切海峽（依真實航跡）
         RMQ: [[24.18, 120.45]],
         CYI: [[23.45, 120.15], [23.42, 120.00]],
         TNN: [[22.95, 120.05]],
@@ -1871,17 +1881,15 @@
         return [[dep.lat, dep.lon], ...exits, rwy.east, rwy.faf, [mzg.lat, mzg.lon]];
     }
 
-    // 非等速：起飛後加速、中段巡航、進場減速；回傳已飛距離比例
+    // 非等速：依真實航跡量出的「時間比例 → 已飛距離比例」（爬升繞行慢、中段巡航快、進場減速）
+    const FLIGHT_PROFILE = [[0, 0], [0.05, 0.04], [0.11, 0.08], [0.28, 0.22], [0.58, 0.55], [0.81, 0.85], [0.87, 0.91], [0.95, 0.97], [1, 1]];
     function distanceFraction(t) {
-        const a = 0.08, b = 0.62, v0 = 0.7, v1 = 0.45;
-        const seg = x => {
-            const p1 = Math.min(x, a);
-            let d = v0 * p1 + (1 - v0) * p1 * p1 / (2 * a);
-            if (x > a) d += Math.min(x, b) - a;
-            if (x > b) { const q = x - b; d += q - (1 - v1) * q * q / (2 * (1 - b)); }
-            return d;
-        };
-        return seg(Math.max(0, Math.min(1, t))) / seg(1);
+        t = Math.max(0, Math.min(1, t));
+        for (let i = 1; i < FLIGHT_PROFILE.length; i++) {
+            const [t0, d0] = FLIGHT_PROFILE[i - 1], [t1, d1] = FLIGHT_PROFILE[i];
+            if (t <= t1) return d0 + (d1 - d0) * (t - t0) / (t1 - t0);
+        }
+        return 1;
     }
 
     function pointAlong(points, fraction) {
@@ -1908,6 +1916,7 @@
     // 起飛與抵達時間：實際起飛優先；預估抵達優先，沒有時依起飛延誤順延
     // 實際空中飛行時間（分鐘）：表定時間含滑行與緩衝，比實際飛行長，直接用會讓位置落後
     const AIRBORNE_MINUTES = { TSA: 48, RMQ: 28, CYI: 22, TNN: 22, KHH: 27, CMJ: 15 };
+    const TAXI_IN_MINUTES = 6;
 
     // 起飛：只用實際起飛（沒有就是還沒起飛，不拿表定起飛代替）
     // 抵達：預估抵達有更新（不同於表定）就用預估，否則用實際起飛＋實際飛行時間；
@@ -1918,7 +1927,8 @@
         if (dep === null) return { dep: null, arr: eArr ?? sArr };
         const airborne = AIRBORNE_MINUTES[f.DepartureAirportID] || 30;
         const estimateUpdated = eArr !== null && (sArr === null || eArr !== sArr);
-        const arr = (estimateUpdated && eArr >= dep + airborne * 0.7) ? eArr : dep + airborne;
+        const landing = eArr !== null ? eArr - TAXI_IN_MINUTES : null;   // 預估到達是停到停機位的時間，落地約早 6 分鐘
+        const arr = (estimateUpdated && landing >= dep + airborne * 0.7) ? landing : dep + airborne;
         return { dep, arr };
     }
 
@@ -1937,16 +1947,39 @@
         return { isLive: false, lat: p.lat, lon: p.lon, bearing: p.bearing, distKm: Math.round(p.remainKm), remainMins: Math.max(1, Math.round(arr - now)), arrMins: arr };
     }
 
+    // 從某點沿方位角移動一段距離（公尺）
+    function movePoint(lat, lon, bearingDeg, distM) {
+        const R = 6371000, d = distM / R, b = bearingDeg * Math.PI / 180;
+        const p1 = lat * Math.PI / 180, l1 = lon * Math.PI / 180;
+        const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+        const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+        return [p2 * 180 / Math.PI, l2 * 180 / Math.PI];
+    }
+
+    // 即時位置有收到的時間差：從收到那一刻起，依飛機自己的速度與航向往前移到現在（最多 5 分鐘，朝機場飛時不超過機場）
+    const LIVE_PROJECT_MAX_SEC = AIRCRAFT_STALE_MS / 1000;
+    function liveNowPoint(live) {
+        const ageSec = live.ts ? Math.min(LIVE_PROJECT_MAX_SEC, Math.max(0, (Date.now() - live.ts) / 1000)) : 0;
+        if (!(live.velocity > 0) || ageSec <= 0) return [live.lat, live.lon];
+        const mzg = AIRPORTS.MZG;
+        let dist = live.velocity * ageSec;
+        if (angleDiff(live.track || 0, getBearing(live.lat, live.lon, mzg.lat, mzg.lon)) < 45) {
+            dist = Math.min(dist, Math.max(0, getDistanceMeters(live.lat, live.lon, mzg.lat, mzg.lon) - 1000));
+        }
+        return movePoint(live.lat, live.lon, live.track || 0, dist);
+    }
+
     // 有即時位置（空中）用即時位置；沒有時依時間推算
     function getFlightPosition(f) {
         const live = liveAircraftByCallsign.get(f.flight);
         if (live && !live.onGround) {
             const mzg = AIRPORTS.MZG;
-            const distKm = getDistanceMeters(live.lat, live.lon, mzg.lat, mzg.lon) / 1000;
+            const [nowLat, nowLon] = liveNowPoint(live);
+            const distKm = getDistanceMeters(nowLat, nowLon, mzg.lat, mzg.lon) / 1000;
             const remainMins = live.velocity > 0 ? Math.max(1, Math.round(distKm / (live.velocity * 3.6) * 60)) : null;
             return {
                 isLive: true,
-                lat: live.lat, lon: live.lon, bearing: live.track || 0,
+                lat: nowLat, lon: nowLon, bearing: live.track || 0,
                 altitudeM: live.altitude !== null && live.altitude !== undefined ? Math.round(live.altitude) : null,
                 speedKmh: live.velocity !== null && live.velocity !== undefined ? Math.round(live.velocity * 3.6) : null,
                 distKm: Math.round(distKm), remainMins
@@ -1964,7 +1997,9 @@
 
     function getEtaClock(f, pos) {
         if (pos && pos.isLive && pos.remainMins) return formatClock(taipeiNowMinutes() + pos.remainMins);
-        const { arr } = flightTimes(f);
+        const { dep, arr } = flightTimes(f);
+        const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
+        if (dep !== null && arr !== null && eArr !== null && eArr !== sArr && arr === eArr - TAXI_IN_MINUTES) return f.actualEnd;
         return arr !== null ? formatClock(arr) : (f.actualEnd || f.scheduledEnd || '—');
     }
 
@@ -1977,8 +2012,24 @@
         return f.actualStart ? `實際起飛 ${f.actualStart}` : `表定起飛 ${f.scheduledStart || '—'}`;
     }
 
+    // 地圖上的飛機每 3 秒依現在時間移到最新位置（兩次讀取資料之間不會停住不動）
+    let planeMarkerRefs = [];
+    function movePlaneMarkers() {
+        planeMarkerRefs.forEach(r => {
+            const pos = getFlightPosition(r.f);
+            if (!pos) return;
+            r.marker.setLatLng([pos.lat, pos.lon]);
+            if (angleDiff(pos.bearing, r.bearing) >= 3) {
+                r.bearing = pos.bearing;
+                r.marker.setIcon(createAirplaneIcon(pos.bearing, r.color, r.size));
+                r.marker.setTooltipContent(r.tipHtml(pos.bearing));
+            }
+        });
+    }
+
     function renderFlights() {
         flightMarkersLayer.clearLayers();
+        planeMarkerRefs = [];
         const listEl = document.getElementById('list-flights');
         listEl.innerHTML = '';
 
@@ -2027,12 +2078,14 @@
                     const el = e.tooltip.getElement();
                     if (el) { el.style.background = palette.color; el.style.border = '1.5px solid #ffffff'; }
                 });
-                planeMarker.bindTooltip(
-                    `<div class="flight-tip-line1">${planeGlyph(pos.bearing)} ${f.flight} (${depName})</div>` +
-                    `<div class="flight-tip-line2">${departureLabel(f)}｜預計抵達 ${etaClock}</div>`, {
+                const tipHtml = bearing =>
+                    `<div class="flight-tip-line1">${planeGlyph(bearing)} ${f.flight} (${depName})</div>` +
+                    `<div class="flight-tip-line2">${departureLabel(f)}｜預計抵達 ${etaClock}</div>`;
+                planeMarker.bindTooltip(tipHtml(pos.bearing), {
                     permanent: true, direction: 'right', offset: [Math.round(planeIconSize(f.aircraft) / 2) + 2, 0], className: 'flight-tooltip'
                 });
                 planeMarker.addTo(flightMarkersLayer);
+                planeMarkerRefs.push({ marker: planeMarker, f, color: palette.color, size: planeIconSize(f.aircraft), bearing: pos.bearing, tipHtml });
                 const posLines = pos.isLive
                     ? `<b>位置：</b>即時位置<br>
                        <b>高度：</b>${pos.altitudeM !== null ? pos.altitudeM + ' 公尺' : '—'}｜<b>速度：</b>${pos.speedKmh !== null ? pos.speedKmh + ' 公里／時' : '—'}<br>
@@ -2179,6 +2232,8 @@
         if (nextRefreshAt && Date.now() >= nextRefreshAt) refreshAllData();
         else updateStatusBar();
     }, 1000);
+    setInterval(fetchAircraftPositions, POSITION_REFRESH_MS);
+    setInterval(movePlaneMarkers, 3000);
 </script>
 <script src="lib/papaparse.min.js"></script>
 <script src="lib/chart.umd.js"></script>
