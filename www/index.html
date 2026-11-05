@@ -1727,6 +1727,7 @@
 
     // ===== 航機即時位置：多個免費來源同時讀取，同一班機取最新一筆 =====
     let liveAircraftByCallsign = new Map();
+    let liveDataOk = false;   // 有讀到即時航機資料時，只以即時資料為準，不再依時間推算
 
     function withTimeout(promise, ms) {
         return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('逾時')), ms))]);
@@ -1813,6 +1814,7 @@
         ];
         await Promise.all(tasks);
 
+        liveDataOk = okCount > 0;
         if (okCount > 0) {
             liveAircraftByCallsign = merged;
             aircraftStatusText = `航機即時位置更新 ${clockNow()}`;
@@ -1949,6 +1951,7 @@
             };
         }
         if (live && live.onGround) return null;
+        if (liveDataOk) return null;   // 即時資料裡沒有這班在空中：還沒起飛（或已降落），不畫
         return estimateInFlightPosition(f);
     }
 
@@ -2007,7 +2010,10 @@
             const arrName = AIRPORTS.MZG.name;
             const palette = getFlightColor(f);
             const pos = getFlightPosition(f);
-            const status = (pos && pos.isLive && f.status.className === 'Waiting') ? { text: '航行中 OnFlying', className: 'OnFlying' } : f.status;
+            const liveRec = liveAircraftByCallsign.get(f.flight);
+            let status = f.status;
+            if (pos && pos.isLive && status.className === 'Waiting') status = { text: '航行中 OnFlying', className: 'OnFlying' };
+            else if (!pos && liveRec && liveRec.onGround && ['OnFlying', 'CommingSoon', 'Landing', 'OnTime'].includes(status.className) && minutesFromNow(f.scheduledEnd) > -30) status = { text: '待起飛 Waiting', className: 'Waiting' };
             const sc = FLIGHT_STATUS_COLORS[status.className] || FLIGHT_STATUS_COLORS.OnTime;
             const etaClock = getEtaClock(f, pos);
             let planeMarker = null;
