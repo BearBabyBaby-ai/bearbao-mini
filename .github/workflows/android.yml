@@ -1,0 +1,43 @@
+name: 原生App建置
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 產生原生專案
+        run: |
+          npm install --no-audit --no-fund
+          npx cap add android
+          node patch.mjs
+          npx cap sync android
+
+      - name: 建置安裝檔（未簽章）
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: 發布到 Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk bearbao-mini-unsigned.apk
+          gh release delete native-build --yes --cleanup-tag || true
+          gh release create native-build bearbao-mini-unsigned.apk --title "原生App（未簽章）" --notes "自動建置：${GITHUB_SHA}" --prerelease

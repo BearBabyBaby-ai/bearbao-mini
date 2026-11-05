@@ -1,0 +1,5 @@
+node_modules/
+android/
+*.keystore
+signing-key-info.txt
+*.apk

@@ -1,0 +1,2343 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>熊寶小資訊</title>
+    <link rel="stylesheet" href="lib/leaflet/leaflet.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        #tab-monitor { 
+            font-family: "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif; 
+            display: flex; 
+            flex-direction: row-reverse; 
+            height: 100vh; 
+            overflow: hidden; 
+            background: #f1f5f9; 
+            color: #1e293b;
+        }
+        
+        #sidebar { 
+            width: 450px; 
+            background: #f8fafc; 
+            color: #1e293b; 
+            display: flex; 
+            flex-direction: column; 
+            z-index: 1000; 
+            border-left: 1px solid #cbd5e1;
+            box-shadow: -4px 0 16px rgba(15, 23, 42, 0.08); 
+        }
+
+        .header { 
+            padding: 14px 18px; 
+            background: linear-gradient(135deg, #0369a1 0%, #0f766e 100%); 
+            color: #ffffff;
+        }
+        .header h1 { font-size: 17px; margin-bottom: 4px; font-weight: 700; letter-spacing: 0.5px; }
+        .header p { font-size: 12px; color: #e0f2fe; line-height: 1.4; }
+
+        .config-box { 
+            padding: 12px 18px; 
+            background: #ffffff; 
+            border-bottom: 1px solid #e2e8f0; 
+            font-size: 13px; 
+        }
+        .control-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+        .control-row:first-child { margin-top: 0; }
+        .control-row label { white-space: nowrap; color: #475569; font-size: 12px; font-weight: 600; width: 92px; }
+        .select-box { 
+            padding: 6px 10px; 
+            border-radius: 6px; 
+            border: 1px solid #cbd5e1; 
+            background: #f8fafc; 
+            color: #0f172a; 
+            font-size: 12.5px; 
+            font-weight: 600;
+            flex: 1; 
+            outline: none;
+        }
+        .select-box:focus { border-color: #0284c7; background: #ffffff; }
+
+        .layer-toggles {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+            flex-wrap: wrap;
+        }
+        .layer-toggles label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .port-shortcuts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 9px; }
+        .port-btn { 
+            padding: 6px 4px; 
+            background: #f1f5f9; 
+            color: #334155; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 6px; 
+            font-size: 12px; 
+            font-weight: 600;
+            cursor: pointer; 
+            text-align: center; 
+            text-decoration: none; 
+            transition: all 0.15s;
+        }
+        .port-btn:hover { background: #0284c7; color: #ffffff; border-color: #0284c7; }
+
+        .btn-fetch { 
+            width: 100%; 
+            padding: 8px; 
+            background: #0284c7; 
+            color: #ffffff; 
+            border: none; 
+            border-radius: 6px; 
+            font-weight: bold; 
+            font-size: 13px;
+            cursor: pointer; 
+            margin-top: 9px; 
+            box-shadow: 0 2px 4px rgba(2, 132, 199, 0.25);
+        }
+        .btn-fetch:hover { background: #0369a1; }
+        
+        .status-bar { 
+            margin-top: 8px; 
+            padding-top: 7px;
+            border-top: 1px solid #f1f5f9;
+            font-size: 12px; 
+            color: #0f766e; 
+            font-weight: 600;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .status-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; line-height: 1.45; }
+        #refresh-countdown { color: #475569; white-space: nowrap; }
+        #ship-count { white-space: nowrap; }
+        #aircraft-status.warn { color: #b45309; }
+
+        #ship-list { flex: 1; overflow-y: auto; padding: 12px 14px; }
+        .ship-card { 
+            background: #ffffff; 
+            padding: 11px 14px; 
+            border-radius: 8px; 
+            margin-bottom: 9px; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            border: 1px solid #e2e8f0;
+            border-left: 5px solid #0d9488; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .ship-card:hover { 
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08); 
+            border-color: #cbd5e1;
+        }
+        .ship-card.offline { 
+            opacity: 0.72; 
+        }
+        .ship-title { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 5px; }
+        .route-tag { font-size: 11px; font-weight: 600; color: #0369a1; background: #e0f2fe; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+        .badge-online { background: #dcfce7; color: #15803d; border: 1px solid #86efac; font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: 700; white-space: nowrap; }
+        .badge-offline { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
+        
+        .ship-meta { font-size: 12px; color: #475569; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
+        
+        #map { flex: 1; height: 100%; background: #cde6f7; }
+        .port-label { 
+            background: #ffffff; color: #be123c; border: 2px solid #e11d48; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 700; 
+        }
+        .pier-label { 
+            background: rgba(255, 255, 255, 0.92); color: #0f766e; border: 1.5px solid #0d9488; border-radius: 4px; padding: 1px 5px; font-size: 11px; font-weight: 700; 
+        }
+        .visitor-label { 
+            background: rgba(254, 243, 199, 0.94); color: #b45309; border: 1.5px solid #d97706; border-radius: 4px; padding: 1px 5px; font-size: 11px; font-weight: 700; 
+        }
+        .airport-label {
+            background: #fdf4ff; color: #7e22ce; border: 2px solid #9333ea; border-radius: 4px; padding: 2px 7px; font-size: 12px; font-weight: 700;
+        }
+        .ship-name-tooltip {
+            background: rgba(255, 255, 255, 0.94); color: #0369a1; border: 1.5px solid #0284c7; border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: 700; white-space: nowrap;
+        }
+        .ship-name-tooltip.penghu-ferry { color: #b45309; border-color: #d97706; background: #fffbeb; }
+        .flight-tooltip { color: #ffffff; border-radius: 4px; padding: 3px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
+        .flight-tip-line1 { line-height: 1.35; }
+        .flight-tip-line2 { line-height: 1.35; margin-top: 2px; padding-top: 2px; border-top: 1px solid rgba(255,255,255,0.45); font-weight: 600; }
+
+        /* ===== 潮汐分海（熊寶系統） ===== */
+    :root{--navy:#082f49;--blue:#075985;--sea:#0f8d96;--gold:#f4c430;--paper:#f7fbfc;--ink:#102a43;--muted:#607d8b;--line:#cfe4ea;--bg:#eef5f7;--shadow:0 18px 42px rgba(7,43,75,.2);--nav-h:62px}
+    .page{padding:16px 0 28px}
+    .page.wide{width:90%;margin:0 auto}
+    .page-head{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:6px 14px;margin:2px 2px 12px}
+    .page-head h2{margin:0;font-size:1.3rem;color:#0b3954;letter-spacing:.03em}
+    .page-head p{margin:0;color:var(--muted);font-size:.86rem}
+    .empty{padding:18px;text-align:center;color:#6b8792;font-size:.86rem}
+    .tide-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:4px 0 10px;box-shadow:0 3px 10px rgba(7,43,75,.06);font-size:.9rem;font-weight:800}
+    .tide-toolbar select{border:1px solid #b9d5dc;border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink);font-weight:700}
+    .tide-status{font-size:.82rem;color:#587582;margin:6px 3px 10px}
+    .tide-days{display:grid;gap:10px}
+    .tide-card{background:#fff;border:1px solid #dbe9ed;border-radius:14px;overflow:hidden;box-shadow:0 3px 12px rgba(7,43,75,.08)}
+    .tide-card[open]{border-color:#1b6ca8;box-shadow:0 5px 18px rgba(7,43,75,.12)}
+    .tide-card summary{list-style:none;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:14px 16px;cursor:pointer}
+    .tide-card summary::-webkit-details-marker{display:none}
+    .tide-card summary>span:first-child{min-width:0}
+    .tide-card summary strong{display:block;font-size:1rem;line-height:1.35;color:#193b55}
+    .tide-brief{display:flex;flex-wrap:wrap;gap:0 10px;margin-top:5px;font-size:.86rem;line-height:1.5}
+    .tide-brief .sep,.tide-item.sep{color:#2563eb!important}
+    .tide-brief .mer,.tide-item.mer{color:#ef1d2f!important}
+    .tide-card .chevron{font-size:1.1rem;color:#63818e;transition:transform .2s;padding-top:1px}
+    .tide-card[open] .chevron{transform:rotate(180deg)}
+    .tide-detail{border-top:1px solid #edf2f4;padding:13px 16px 16px}
+    .sun-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#fffdf0;border-radius:8px;padding:9px 10px;margin-bottom:14px;color:#72551d;font-size:.84rem}
+    .tide-label{font-size:.78rem;color:#758b95;font-weight:800;border-bottom:1px solid #e6eef0;padding-bottom:5px;margin:11px 0 7px}
+    .tide-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+    .tide-item{display:flex;justify-content:space-between;align-items:center;min-height:37px;padding:7px 10px;background:#fafafa;border-left:3px solid currentColor;border-radius:6px;font-size:.85rem}
+    .tide-item.hi{color:#ff3b45}.tide-item.lo{color:#2788ee}.tide-item strong{font-weight:800}
+    .safety-list{display:flex;flex-wrap:wrap;gap:7px;background:#e8f4ff;border-left:3px solid #2d8eea;border-radius:7px;padding:9px 10px;color:#16527a;font-size:.86rem}
+    .safety-list span{font-weight:700}
+    .safety-list span+span:before{content:'│';color:#82afd0;margin-right:7px}
+    .tide-card:not([open]) summary{padding-top:12px;padding-bottom:12px}
+    
+    #view-tide{background:linear-gradient(180deg,#f3f8fa 0,#eaf3f6 100%)}
+    @media(min-width:821px){#view-tide .tide-days{grid-template-columns:repeat(3,minmax(0,1fr));align-items:start}}
+    #view-tide .page-head h2{color:#0b3954}
+    #view-tide .page-head p{color:#5b7480}
+    #view-tide .tide-toolbar{border:1px solid #d3e3e8;border-left:5px solid #0b3954;border-radius:14px;color:#0b3954;box-shadow:0 4px 14px rgba(11,57,84,.07)}
+    #view-tide .tide-toolbar select{border-color:#9fc3cf;background:#f7fbfc;color:#0b3954;font-weight:800}
+    #view-tide .tide-toolbar select:focus{outline:2px solid #0f8d96;outline-offset:1px}
+    #view-tide .tide-status{color:#4a6572;font-weight:700}
+    #view-tide .tide-status:empty{display:none}
+    #view-tide .tide-card{border:1px solid #d6e4e9;border-radius:16px;box-shadow:0 3px 12px rgba(11,57,84,.06)}
+    #view-tide .tide-card summary:hover{background:#f6fafb}
+    #view-tide .tide-card[open]{border-color:#0b3954;box-shadow:0 8px 22px rgba(11,57,84,.14)}
+    #view-tide .tide-card[open] summary{background:linear-gradient(90deg,#eef6f8,#fff);border-bottom:1px solid #dbe8ec}
+    #view-tide .tide-card summary strong{color:#0b3954;letter-spacing:.02em}
+    #view-tide .tide-card .chevron{color:#0f8d96}
+    #view-tide .tide-detail{border-top:0;background:#fff}
+    #view-tide .sun-row{background:linear-gradient(90deg,#fff7e6,#fff1d6);border:1px solid #f6dcae;border-radius:10px;color:#8a4b08;font-weight:700}
+    #view-tide .tide-label{display:flex;align-items:center;gap:7px;color:#0b3954;font-size:.8rem;border-bottom:1px solid #e3edf0}
+    #view-tide .tide-label::before{content:"";width:4px;height:13px;border-radius:2px;background:#0f8d96}
+    #view-tide .tide-item{background:#f7f9fb;border-radius:8px;box-shadow:inset 0 0 0 1px #e8eef1}
+    #view-tide .safety-list{background:#ecfdf5;border-left:4px solid #10b981;border-radius:9px;color:#065f46}
+    #view-tide .safety-list span+span:before{color:#6ee7b7}
+
+    
+    #fcPane .forecast-page{height:100%;display:flex;flex-direction:column;padding-bottom:12px}
+    .forecast-container{display:flex;gap:15px;margin:4px 0 0;flex:1;min-height:0}
+    .forecast-list{width:45%;overflow-y:auto;padding-right:5px}
+    .forecast-chart-panel{width:55%;background:white;padding:15px;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,.05);border:1px solid var(--line);align-self:flex-start}
+    .f-card{background:white;border-radius:8px;padding:12px;margin-bottom:12px;cursor:pointer;border:1px solid #e2e8f0;transition:all .2s ease;position:relative}
+    .f-card:hover{border-color:#900;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+    .f-card.active{border:2px solid #900;background:#fffcfc}
+    .f-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:1.1rem;font-weight:800;color:#1e293b}
+    .f-card-note{font-size:.82rem;color:#64748b;margin-bottom:4px}
+    .f-tide-container{margin-top:10px;display:none;border-top:1px solid #eee;padding-top:10px}
+    .f-card.active .f-tide-container{display:block}
+    .f-tide-row{display:grid;grid-template-columns:60px 80px 1fr 40px;align-items:center;padding:8px 12px;margin-bottom:5px;background:#f8fafc;border-radius:4px;font-size:1rem}
+    .f-tide-row.high{border-left:5px solid #d32f2f;color:#d32f2f}
+    .f-tide-row.low{border-left:5px solid #1976d2;color:#1976d2}
+    .f-status-tags{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;min-height:25px}
+    .f-tag-pill{color:white;padding:4px 12px;border-radius:15px;font-size:.85rem;font-weight:bold}
+    .f-bg-mer{background-color:#ef4444}.f-bg-sep{background-color:#3b82f6}
+    @media(max-width:820px){
+      #fcPane{overflow-y:auto}
+      #fcPane .forecast-page{height:auto;display:block}
+      .forecast-chart-panel{display:none!important}
+      .forecast-list{width:100%!important;height:auto!important;overflow-y:visible}
+      .forecast-container{flex-direction:column;height:auto}
+    }
+    .seg{display:inline-flex;gap:4px;background:rgba(255,255,255,.75);border:1px solid var(--line);border-radius:14px;padding:4px;box-shadow:0 2px 8px rgba(7,43,75,.06);margin-bottom:12px;flex-wrap:wrap}
+    .seg button{border:0;background:transparent;border-radius:10px;padding:9px 16px;font-weight:900;color:#3d5a66;font-size:.9rem}
+    .seg button.active{background:#0b3954;color:#fff;box-shadow:0 3px 10px rgba(11,57,84,.25)}
+    #fcPane .forecast-container{height:calc(100dvh - 300px);min-height:440px}
+    #fcPane .forecast-list{height:100%}
+    @media(max-width:820px){#fcPane .forecast-container{height:auto;min-height:0}.seg{display:flex}.seg button{flex:1;padding:9px 6px}}
+    .wx-now{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 16px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px 16px;box-shadow:0 8px 22px rgba(7,43,75,.08);margin-bottom:12px}
+    .wx-now .ic{font-size:2.6rem;line-height:1;grid-row:span 2}
+    .wx-now b{font-size:1.15rem;color:#0b3954}
+    .wx-now p{margin:0;color:#475569;font-size:.86rem;line-height:1.6}
+    .wx-badge{display:inline-block;border-radius:999px;padding:3px 10px;font-size:.76rem;font-weight:900;margin-left:6px;vertical-align:middle}
+    .wx-badge.ok{background:#dcfce7;color:#15803d}.wx-badge.warn{background:#fef3c7;color:#b45309}.wx-badge.bad{background:#fee2e2;color:#b91c1c}
+    .wx-hours{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;margin-bottom:6px;scrollbar-width:thin}
+    .wx-h{flex:0 0 86px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:8px 6px;text-align:center;font-size:.78rem;color:#334155}
+    .wx-h b{display:block;font-size:.84rem;color:#0b3954}
+    .wx-h i{display:block;font-style:normal;font-size:1.3rem;margin:2px 0}
+    .wx-days{display:grid;gap:8px}
+    .wx-day{display:grid;grid-template-columns:78px 34px minmax(0,1fr) auto;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:0 3px 10px rgba(7,43,75,.05);font-size:.84rem}
+    .wx-day .d b{display:block;color:#0b3954}.wx-day .d small{color:#64748b}
+    .wx-day .ic{font-size:1.5rem;text-align:center}
+    .wx-day .m{color:#334155;line-height:1.55}
+    .wx-src{font-size:.74rem;color:#64748b;margin-top:10px}
+    @media(max-width:820px){.wx-day{grid-template-columns:60px 30px minmax(0,1fr);}.wx-day .wx-badge{grid-column:1/-1;justify-self:start;margin:0}}
+    .xb-empty{padding:22px;text-align:center;color:#6b8792;font-size:.88rem;background:rgba(255,255,255,.7);border:1px dashed #c9dbe1;border-radius:14px}
+    .td-time{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;font-size:.88rem;color:#334155;font-weight:700;flex-wrap:wrap}   /* 電腦版潮位趨勢圖 */
+    .td-time input{width:96px;border:1px solid #cfe1e6;border-radius:8px;padding:6px 8px;font:inherit;text-align:center}
+    .td-time button{border:0;border-radius:8px;background:#0b3954;color:#fff;padding:7px 14px;font-weight:800;cursor:pointer}
+    .td-msg{color:#b91c1c;font-size:.82rem}
+    .td-right{width:55%;display:flex;flex-direction:column;gap:12px;min-height:0;padding-bottom:2px}
+    .td-right .forecast-chart-panel{width:auto;align-self:stretch;flex:1;min-height:0;display:flex;flex-direction:column}
+    .td-canvas{position:relative;flex:1;min-height:240px;max-height:440px}
+    .td-info{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .td-info[hidden]{display:none}
+    .td-info div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 4px 6px rgba(0,0,0,.05)}
+    .td-info b{display:block;font-size:.8rem;margin-bottom:4px}
+    .td-info span{font-size:1.05rem;font-weight:900;color:#1e293b}
+    .td-info .safe{border-left:5px solid #10b981}.td-info .safe b{color:#047857}
+    .td-info .rise{border-left:5px solid #d97706}.td-info .rise b{color:#b45309}
+    .td-info .set{border-left:5px solid #7c3aed}.td-info .set b{color:#6d28d9}
+    .f-card-safety{margin-top:6px;font-size:.8rem;color:#047857;font-weight:700}
+    #kbDesk{height:calc(100dvh - 300px);min-height:440px}
+    #kbDesk .forecast-list{height:100%}
+    @media(min-width:821px){#tideDays{display:none}}
+    @media(max-width:820px){#kbDesk,.td-time{display:none!important}}
+
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            font-family: "Microsoft JhengHei", "Noto Sans TC", -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            background: #f1f5f9;
+            color: #1e293b;
+        }
+        .tab-pane[hidden] { display: none !important; }
+        .config-box .layer-toggles, .config-box .port-shortcuts, .config-box .btn-fetch { display: none !important; }
+        #tab-monitor { flex: 1; min-height: 0; height: auto !important; }
+        #tab-tide { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        #view-tide { min-height: 100%; }
+        #bottom-nav {
+            flex: 0 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            background: #ffffff;
+            border-top: 1px solid #cbd5e1;
+            box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+            padding-bottom: env(safe-area-inset-bottom);
+            z-index: 2000;
+        }
+        #bottom-nav button {
+            border: 0;
+            background: transparent;
+            padding: 9px 4px 10px;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            color: #475569;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+        #bottom-nav button .ic { font-size: 20px; line-height: 1; }
+        #bottom-nav button.active { color: #0369a1; background: #e0f2fe; }
+        @media (max-width: 820px) {
+            #tab-monitor { flex-direction: column-reverse; }
+            #map { flex: 0 0 46%; height: auto; }
+            #sidebar { width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; border-left: 0; border-top: 1px solid #cbd5e1; box-shadow: none; -webkit-overflow-scrolling: touch; }
+            #ship-list { flex: none; overflow: visible; }
+            .header { padding: 10px 14px; }
+            .header h1 { font-size: 15px; }
+            .config-box { padding: 10px 14px; }
+        }
+    </style>
+</head>
+<body>
+<div id="tab-monitor" class="tab-pane">
+
+<div id="sidebar">
+    <div class="header">
+        <h1>布袋港/高雄港 ⇄ 澎湖 船舶與機場動態監控系統</h1>
+        <p>嚴格航線歸屬過濾｜無門牌清爽底圖｜機場航網</p>
+    </div>
+
+    <div class="config-box">
+        <div class="control-row" id="row-ship-filter">
+            <label for="select-filter">顯示船舶過濾：</label>
+            <select id="select-filter" class="select-box" onchange="renderShips()">
+                <option value="penghu_20nm" selected>澎湖周圍海域 20 海浬＋高雄 澎湖輪</option>
+            </select>
+        </div>
+
+        <div class="control-row" id="row-flight-filter">
+            <label for="select-airport">篩選出發機場：</label>
+            <select id="select-airport" class="select-box" onchange="onAirportFilterChange()">
+                <option value="ALL" selected>全部指定機場 ➔ 澎湖 (MZG)</option>
+                <option value="TSA">台北松山 (TSA) ➔ 澎湖 (MZG)</option>
+                <option value="RMQ">台中清泉崗 (RMQ) ➔ 澎湖 (MZG)</option>
+                <option value="CYI">嘉義水上 (CYI) ➔ 澎湖 (MZG)</option>
+                <option value="TNN">台南機場 (TNN) ➔ 澎湖 (MZG)</option>
+                <option value="KHH">高雄小港機場 (KHH) ➔ 澎湖 (MZG)</option>
+                <option value="CMJ">七美機場 (CMJ) ➔ 澎湖 (MZG)</option>
+            </select>
+        </div>
+
+        <div class="control-row">
+            <label for="zoneSelect">地圖鏡頭範圍：</label>
+            <select id="zoneSelect" class="select-box" onchange="changeZone()">
+                <option value="all_corridor" selected>布袋 / 馬公 全航線</option>
+            </select>
+        </div>
+
+        <div class="control-row">
+            <label for="basemapSelect">底圖樣式切換：</label>
+            <select id="basemapSelect" class="select-box" onchange="changeBasemap()">
+                <option value="osm_hot" selected>🗺️ 航運清爽版 (免金鑰/無門牌號)</option>
+                <option value="nlsc_emap2">🇹🇼 國土測繪通用版 (無門牌號/正體中文)</option>
+                <option value="esri_sat">🛰️ Esri 衛星空照圖 (完全無門牌文字)</option>
+            </select>
+        </div>
+
+        <div class="layer-toggles">
+            <span>地標圖層顯示：</span>
+            <label><input type="checkbox" id="chk-piers" checked onchange="togglePOILayers()"> ⚓ 碼頭 (21)</label>
+            <label><input type="checkbox" id="chk-visitors" checked onchange="togglePOILayers()"> ℹ️ 遊客中心 (14)</label>
+            <label><input type="checkbox" id="chk-airports" checked onchange="togglePOILayers()"> ✈️ 機場 (7)</label>
+        </div>
+
+        <div class="port-shortcuts">
+            <button class="port-btn" onclick="focusPort('magong')">📍 馬公港</button>
+            <button class="port-btn" onclick="focusPort('budai')">📍 布袋港</button>
+            <button class="port-btn" onclick="focusPort('kaohsiung')">📍 高雄港</button>
+            <a class="port-btn" href="https://mpbais.motcmpb.gov.tw/" target="_blank">🌐 航港局AIS</a>
+        </div>
+
+        <button class="btn-fetch" onclick="refreshAllData()">🔄 立即重新整理資料</button>
+        <div class="status-bar">
+            <div class="status-row"><span id="status-text">資料載入中...</span></div>
+            <div class="status-row"><span id="aircraft-status">航機位置載入中</span></div>
+            <div class="status-row"><span id="refresh-countdown"></span><span id="ship-count">船舶 0 艘｜航班 0 班</span></div>
+        </div>
+    </div>
+
+    <div id="ship-list"><div id="list-ships"></div><div id="list-flights"></div></div>
+</div>
+
+<div id="map"></div>
+</div>
+
+<div id="tab-tide" class="tab-pane" hidden>
+    <section class="view" id="view-tide" aria-label="潮汐分海">
+      <div class="page wide">
+        <div class="page-head"><h2>🌊 潮汐分海</h2><p>奎壁山摩西分海・未來 30 天潮汐・風浪天氣</p></div>
+        <div class="seg" id="tideSeg" role="tablist" aria-label="潮汐分海內容"><button type="button" class="active" data-tm="split">🌊 奎壁山分海</button><button type="button" data-tm="forecast">📈 30 天潮汐預報</button><button type="button" data-tm="wx">🌬️ 風浪天氣</button></div>
+        <div id="splitPane">
+        <div class="tide-toolbar"><label for="tideMonth">選擇查詢月份</label><select id="tideMonth"></select></div>
+        <div id="tideStatus" class="tide-status">尚未載入分海資料</div>
+        <div id="tideDays" class="tide-days"></div>
+        <div id="kbDesk" class="forecast-container kb-desk">   <!-- 電腦版：日期清單＋潮位趨勢圖 -->
+          <div class="forecast-list" id="kbList"></div>
+          <div class="td-right">
+            <div class="forecast-chart-panel">
+              <h4 id="kbChartTitle" style="text-align:center;margin:0 0 10px 0;color:#334155;">請選擇日期</h4>
+              <div class="td-time"><label for="kbTime">查詢時間（24小時制）</label><input id="kbTime" type="text" inputmode="numeric" maxlength="5" placeholder="例如 09:40" autocomplete="off"><button type="button" id="kbTimeGo">查詢</button><span id="kbTimeMsg" class="td-msg"></span></div>
+              <div class="td-canvas"><canvas id="kbChart"></canvas></div>
+            </div>
+            <div id="kbInfo" class="td-info" hidden></div>
+          </div>
+        </div>
+        </div>
+        <div id="fcPane" hidden>
+        <div class="tide-toolbar">
+          <label for="forecastRegion">預報區域：</label>
+          <select id="forecastRegion">
+            <option value="馬公">馬公</option>
+            <option value="湖西">湖西</option>
+            <option value="白沙" selected>白沙</option>
+            <option value="西嶼">西嶼</option>
+            <option value="望安">望安</option>
+            <option value="七美">七美</option>
+          </select>
+          <span id="forecastLoading" style="display:none;color:#075985;font-weight:bold;margin-left:10px;">數據載入中...</span>
+        </div>
+        <div class="forecast-container">
+          <div class="forecast-list" id="forecastList"></div>
+          <div class="forecast-chart-panel">
+            <h4 id="forecastChartTitle" style="text-align:center;margin:0 0 10px 0;color:#334155;">請選擇日期</h4>
+            <div class="td-time"><label for="fcTime">查詢時間（24小時制）</label><input id="fcTime" type="text" inputmode="numeric" maxlength="5" placeholder="例如 09:40" autocomplete="off"><button type="button" id="fcTimeGo">查詢</button><span id="fcTimeMsg" class="td-msg"></span></div>
+            <div style="height:380px;"><canvas id="forecastChart"></canvas></div>
+          </div>
+        </div>
+        </div>
+        <div id="wxPane" hidden></div>
+      </div>
+    </section>
+</div>
+
+<nav id="bottom-nav">
+    <button type="button" data-tab="monitor" class="active"><span class="ic">🚢</span>船舶航班</button>
+    <button type="button" data-tab="tide"><span class="ic">🌊</span>潮汐分海</button>
+</nav>
+
+<script src="lib/leaflet/leaflet.js"></script>
+<script>
+    const TDX_CONFIG = {
+		CLIENT_ID: "bearbaby2025.ai-fb5c40bb-0e3b-4e00",
+        CLIENT_SECRET: "789f6633-eac6-4c30-908d-6b627ff798d5"
+    };
+
+    // 航班資料來源（公開唯讀）
+    const FLIGHT_SHEET_ID = "1LOr4_3ugTHvTIi4UIfgVz2atVFh2K32zh7YKrrHxTwk";
+    const FLIGHT_ARR_SHEET = "抵達航班";
+
+    // 航機即時位置：原轉接網址＋免費直連來源，同時讀取，取最新一筆
+    const AIRCRAFT_POSITION_URL = "https://script.google.com/macros/s/AKfycbyRtqkxAMCq93upmX9prMs96qv3y73zjromAjsBcCvrVkZF-3qIf_JQ_0SDDiMr3l9otg/exec";
+
+    const OPENSKY_DIRECT_URL = "https://opensky-network.org/api/states/all?lamin=22.2661731&lomin=119.0789612&lamax=25.4489764&lomax=123.1757826";
+    const ADSB_SOURCES = [
+        "https://api.adsb.lol/v2/point/23.86/121.13/250",
+        "https://opendata.adsb.fi/api/v2/lat/23.86/lon/121.13/dist/250",
+        "https://api.airplanes.live/v2/point/23.86/121.13/250"
+    ];
+    const AIRCRAFT_STALE_MS = 5 * 60 * 1000;
+
+    // 航空公司代表色（立榮綠、華信藍，與綜合系統航班資訊一致）
+    const AIRLINE_COLORS = [
+        { keys: ['華信', 'MDA'], color: '#155e9f', tint: '#d8eafd' },
+        { keys: ['立榮', 'UIA'], color: '#176b3a', tint: '#d7f0df' },
+        { keys: ['德安', 'DAC'], color: '#c8102e', tint: '#fbe9ec' }
+    ];
+    const DEFAULT_AIRLINE_COLOR = { color: '#7e22ce', tint: '#f3e8ff' };
+
+    function getAirlineColor(airlineText) {
+        const t = String(airlineText || '').toUpperCase();
+        return AIRLINE_COLORS.find(a => a.keys.some(k => t.includes(k))) || DEFAULT_AIRLINE_COLOR;
+    }
+
+    // 船舶卡片顏色（與航空公司色系區分）
+    const SHIP_COLORS = {
+        fleet:   { color: '#0891b2', tint: '#ecfeff' },
+        penghu:  { color: '#d97706', tint: '#fffbeb' },
+        general: { color: '#64748b', tint: '#f8fafc' }
+    };
+
+    function getShipColor(fleet) {
+        if (fleet && fleet.no === "99") return SHIP_COLORS.penghu;
+        if (fleet) return SHIP_COLORS.fleet;
+        return SHIP_COLORS.general;
+    }
+
+    function applyCardColor(card, palette) {
+        card.style.borderLeftColor = palette.color;
+        card.style.background = `linear-gradient(90deg, ${palette.tint} 0%, #ffffff 55%)`;
+    }
+
+    const BLOCKED_MMSI_SET = new Set(['416100010', '41610001', '416001234']);
+
+    function isBlacklistedShip(ship) {
+        const mmsi = String(ship.MMSI || '').trim();
+        if (BLOCKED_MMSI_SET.has(mmsi) || mmsi.startsWith('41610001')) return true;
+
+        const nameZh = String(ship.VesselName?.Zh_tw || '').toUpperCase();
+        const nameEn = String(ship.VesselName?.En || '').toUpperCase();
+        const rawName = String(ship.VesselName || '').toUpperCase();
+        const blockedKeywords = ['TAI HWA', 'TAIHWA', 'TAI HUA', 'TAIHUA', '台華', '臺華', '416100010', '41610001', 'CHI GU'];
+        return blockedKeywords.some(kw => nameZh.includes(kw) || nameEn.includes(kw) || rawName.includes(kw));
+    }
+
+    const TARGET_FLEET = [
+        { no: "1",  nameZh: "太吉之星2",   nameEn: "Tai Ji Jhih Sing No.2", callSign: "BR4040", mmsi: "416005521", route: "布袋 ⇄ 澎湖" },
+        { no: "2",  nameZh: "太吉之星3",   nameEn: "Tai Ji Jhih Sing No.3", callSign: "BR4814", mmsi: "416009354", route: "布袋 ⇄ 澎湖" },
+        { no: "3",  nameZh: "百麗-藍鵲",   nameEn: "Blue Magpie",           callSign: "BR4125", mmsi: "416005694", route: "布袋 ⇄ 澎湖" },
+        { no: "4",  nameZh: "百麗-雲豹",   nameEn: "RIKULAU",               callSign: "BR4124", mmsi: "416005693", route: "布袋 ⇄ 澎湖" },
+        { no: "5",  nameZh: "百麗-百麗",   nameEn: "PESCADORES",            callSign: "BR3478", mmsi: "416004238", route: "布袋 ⇄ 澎湖" },
+        { no: "6",  nameZh: "凱旋8號",     nameEn: "Kai Shiuan 8",          callSign: "BR4330", mmsi: "416006143", route: "布袋 ⇄ 澎湖" },
+        { no: "7",  nameZh: "滿天星1號",   nameEn: "All Star No.1",         callSign: "BR2087", mmsi: "416000403", route: "布袋 ⇄ 澎湖" },
+        { no: "8",  nameZh: "滿天星2號",   nameEn: "All Star No.2",         callSign: "BR3574", mmsi: "416004561", route: "布袋 ⇄ 澎湖" },
+        { no: "9",  nameZh: "凱旋3號",     nameEn: "Kai Shiuan No.3",       callSign: "BR2175", mmsi: "416174800", route: "布袋 ⇄ 澎湖" },
+        { no: "10", nameZh: "海有13號",    nameEn: "Hai You No.13",         callSign: "",       mmsi: "",          route: "布袋 ⇄ 澎湖" },
+        { no: "11", nameZh: "金八達",      nameEn: "King Ba Da",            callSign: "BR3583", mmsi: "416004613", route: "布袋 ⇄ 澎湖" },
+        { no: "12", nameZh: "金八達6號",   nameEn: "Kingbada No.6",         callSign: "",       mmsi: "416005108", route: "赤崁 ⇄ 吉貝" },
+        { no: "13", nameZh: "金八達8號",   nameEn: "Kingbada No.8",         callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝" },
+        { no: "14", nameZh: "金八達16號",  nameEn: "Kingbada No.16",        callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝" },
+        { no: "15", nameZh: "金八達68號",  nameEn: "Kingbada No.68",        callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝" },
+        { no: "16", nameZh: "金八達88號",  nameEn: "Kingbada No.88",        callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝" },
+        { no: "17", nameZh: "金八達116號", nameEn: "Kingbada No.116",       callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝" },
+        { no: "18", nameZh: "海上明珠2號", nameEn: "Hai Shang Ming Zhu 2",  callSign: "",       mmsi: "",          route: "望安 ⇄ 將軍 ⇄ 馬公" },
+        { no: "19", nameZh: "海安8號",     nameEn: "Hai An No.8",           callSign: "",       mmsi: "",          route: "澎湖水域" },
+        { no: "20", nameZh: "海安10號",    nameEn: "Hai An No.10",          callSign: "",       mmsi: "",          route: "澎湖水域" },
+        { no: "21", nameZh: "海安18號",    nameEn: "Hai An No.18",          callSign: "",       mmsi: "",          route: "澎湖水域" },
+        { no: "22", nameZh: "海安28號",    nameEn: "Hai An No.28",          callSign: "",       mmsi: "",          route: "澎湖水域" },
+        { no: "23", nameZh: "東北之星",    nameEn: "Dong Bei Star",         callSign: "",       mmsi: "",          route: "澎湖水域" },
+        { no: "24", nameZh: "南海之星",    nameEn: "Nanhai Star",           callSign: "BP2074", mmsi: "416002977", route: "馬公 ⇄ 望安 ⇄ 七美" },
+        { no: "25", nameZh: "南海之星2號", nameEn: "Nanhai Star 2",         callSign: "BR3672", mmsi: "416247800", route: "馬公 ⇄ 望安 ⇄ 七美" },
+        { no: "26", nameZh: "光正6號",     nameEn: "Kuang Cheng No.6",      callSign: "",       mmsi: "416000112", route: "馬公 ⇄ 望安 ⇄ 將軍" },
+        { no: "27", nameZh: "光正3號",     nameEn: "Kuang Cheng No.3",      callSign: "",       mmsi: "",          route: "馬公 ⇄ 望安 ⇄ 將軍" },
+        { no: "28", nameZh: "白沙之星",    nameEn: "Baisha Star",           callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝 ⇄ 目斗" },
+        { no: "29", nameZh: "旗豐3號",     nameEn: "Qifeng No.3",           callSign: "",       mmsi: "",          route: "赤崁 ⇄ 吉貝" },
+        { no: "30", nameZh: "岳興號",      nameEn: "Yue Sing",              callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼" },
+        { no: "31", nameZh: "吉鴻號",      nameEn: "Ji Hong",               callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼" },
+        { no: "32", nameZh: "愛國號",      nameEn: "Aiguo",                 callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼" },
+        { no: "33", nameZh: "員貝號",      nameEn: "Yuanbei",               callSign: "",       mmsi: "",          route: "岐頭 ⇄ 員貝" },
+        { no: "34", nameZh: "鉅航8號",     nameEn: "Juhang No.8",           callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
+        { no: "35", nameZh: "鉅航18號",    nameEn: "Juhang No.18",          callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
+        { no: "36", nameZh: "鉅航68號",    nameEn: "Juhang No.68",          callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
+        { no: "37", nameZh: "鉅航168號",   nameEn: "Juhang No.168",         callSign: "",       mmsi: "",          route: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘" },
+        { no: "38", nameZh: "望安之星",    nameEn: "Wangan Star",           callSign: "",       mmsi: "416009165", route: "馬公 ⇄ 望安 ⇄ 將軍 ⇄ 南方四島" },
+        { no: "39", nameZh: "世紀之星168號", nameEn: "",                    callSign: "",       mmsi: "",          route: "馬公 ⇄ 花嶼" },
+        { no: "40", nameZh: "金八達10號",  nameEn: "Kingbada No.10",        callSign: "",       mmsi: "",          route: "望安 ⇄ 將軍 ⇄ 馬公" },
+        { no: "99", nameZh: "澎湖輪",      nameEn: "Penghu",                callSign: "BP3770", mmsi: "416009428", route: "高雄 ⇄ 澎湖" }
+    ];
+
+    function findMatchingLiveShip(fleet, liveShips, liveMapByMMSI) {
+        const cleanMmsi = String(fleet.mmsi || '').trim();
+        if (cleanMmsi && liveMapByMMSI[cleanMmsi]) return liveMapByMMSI[cleanMmsi];
+
+        const cleanCall = String(fleet.callSign || '').trim().toUpperCase();
+        const normEn = fleet.nameEn.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+        const normZh = fleet.nameZh.replace(/[-號\s]/g, '');
+
+        return liveShips.find(s => {
+            if (cleanCall && String(s.CallSign || '').trim().toUpperCase() === cleanCall) return true;
+            const sZh = String(s.VesselName?.Zh_tw || '').replace(/[-號\s]/g, '');
+            const sEn = String(s.VesselName?.En || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+            if (sZh && normZh && sZh === normZh) return true;
+            if (sEn && normEn && sEn === normEn) return true;
+            return false;
+        });
+    }
+
+    const PIERS_AND_PORTS = [
+        { id: "magong_port",     name: "澎湖港馬公碼頭區（馬公港）", lat: 23.5605280, lon: 119.5705560, isMajor: true },
+        { id: "magong_cruise",   name: "馬公港1號國際郵輪碼頭",       lat: 23.5626940, lon: 119.5651930, isMajor: false },
+        { id: "guangzheng_pier", name: "光正碼頭（南海觀光碼頭）",   lat: 23.5654011, lon: 119.5718797, isMajor: false },
+        { id: "chikan_pier",     name: "赤崁碼頭",                   lat: 23.6687300, lon: 119.6030000, isMajor: false },
+        { id: "houliao_pier",    name: "後寮碼頭",                   lat: 23.6710100, lon: 119.5709000, isMajor: false },
+        { id: "qitou_pier",      name: "岐頭碼頭",                   lat: 23.6495500, lon: 119.6093000, isMajor: false },
+        { id: "jibei_pier",      name: "吉貝碼頭",                   lat: 23.7388700, lon: 119.6116000, isMajor: false },
+        { id: "niaoyu_pier",     name: "鳥嶼碼頭",                   lat: 23.6601000, lon: 119.6575400, isMajor: false },
+        { id: "yuanbei_pier",    name: "員貝碼頭",                   lat: 23.6467226, lon: 119.6306219, isMajor: false },
+        { id: "chongguang_pier", name: "重光碼頭",                   lat: 23.5849890, lon: 119.5710140, isMajor: false },
+        { id: "dacang_pier",     name: "大倉碼頭",                   lat: 23.6171455, lon: 119.5686528, isMajor: false },
+        { id: "hujing_port",     name: "虎井港",                     lat: 23.4865740, lon: 119.5169060, isMajor: false },
+        { id: "tongpan_port",    name: "桶盤港",                     lat: 23.5126766, lon: 119.5187694, isMajor: false },
+        { id: "tanmen_port",     name: "潭門港",                     lat: 23.3619550, lon: 119.5081550, isMajor: false },
+        { id: "jiangjun_port",   name: "將軍港（將軍澳嶼碼頭）",     lat: 23.3629320, lon: 119.5209040, isMajor: false },
+        { id: "huayu_pier",      name: "花嶼碼頭",                   lat: 23.3986810, lon: 119.3176340, isMajor: false },
+        { id: "dongji_port",     name: "東吉港",                     lat: 23.2547850, lon: 119.6674800, isMajor: false },
+        { id: "dongyuping_pier", name: "東嶼坪碼頭",                 lat: 23.2562900, lon: 119.5112990, isMajor: false },
+        { id: "nanhu_port",      name: "南滬港（七美）",             lat: 23.1958200, lon: 119.4188000, isMajor: false },
+        { id: "budai_port",      name: "嘉義布袋港",                 lat: 23.3786830, lon: 120.1383120, isMajor: true },
+        { id: "kaohsiung_port",  name: "高雄小港港口",               lat: 22.6184878, lon: 120.2742688, isMajor: true }
+    ];
+
+    // 澎湖周圍海域：距離任一澎湖碼頭／港口 20 海浬以內
+    const PENGHU_RANGE_METERS = 20 * 1852;
+    const PENGHU_PIERS = PIERS_AND_PORTS.filter(p => p.id !== 'budai_port' && p.id !== 'kaohsiung_port');
+
+    function isWithinPenghuRange(lat, lon) {
+        return PENGHU_PIERS.some(p => getDistanceMeters(lat, lon, p.lat, p.lon) <= PENGHU_RANGE_METERS);
+    }
+
+    const VISITOR_CENTERS = [
+        { id: "vc_penghu",        name: "澎湖遊客中心",           lat: 23.5559711, lon: 119.6069071 },
+        { id: "vc_nanhai",        name: "南海遊客中心",           lat: 23.5665000, lon: 119.5725000 },
+        { id: "vc_beihai",        name: "北海遊客中心",           lat: 23.6687300, lon: 119.6030000 },
+        { id: "vc_houliao",       name: "後寮遊客中心",           lat: 23.6710100, lon: 119.5709000 },
+        { id: "vc_qitou",         name: "岐頭遊客中心",           lat: 23.6495500, lon: 119.6093000 },
+        { id: "vc_jibei",         name: "吉貝遊客中心",           lat: 23.7388700, lon: 119.6116000 },
+        { id: "vc_airport",       name: "澎湖機場旅遊服務中心",   lat: 23.5600400, lon: 119.6295000 },
+        { id: "vc_xiyu",          name: "西嶼西臺遊客中心",       lat: 23.5650700, lon: 119.4900000 },
+        { id: "vc_xiaomen",       name: "小門地質館",             lat: 23.6539028, lon: 119.5172361 },
+        { id: "vc_wangan_turtle", name: "望安綠蠵龜觀光保育中心", lat: 23.3649620, lon: 119.5069200 },
+        { id: "vc_qimei",         name: "七美遊客中心",           lat: 23.1958200, lon: 119.4188000 },
+        { id: "vc_yuweng",        name: "漁翁島遊客中心",         lat: 23.6505700, lon: 119.5409000 },
+        { id: "vc_geopark",       name: "澎湖海洋地質公園中心",   lat: 23.5664500, lon: 119.5791000 },
+        { id: "vc_guoye",         name: "菓葉灰窯旅遊資訊站",     lat: 23.5753516, lon: 119.6807610 }
+    ];
+
+    const AIRPORTS = {
+        MZG: { id: "apt_mzg", code: "MZG", name: "澎湖機場",     lat: 23.5600400, lon: 119.6295000, flightMins: 0 },
+        TSA: { id: "apt_tsa", code: "TSA", name: "台北松山",     lat: 25.0657491, lon: 121.5517511, flightMins: 55 },
+        RMQ: { id: "apt_rmq", code: "RMQ", name: "台中清泉崗",   lat: 24.2590473, lon: 120.6213715, flightMins: 40 },
+        CYI: { id: "apt_cyi", code: "CYI", name: "嘉義水上",     lat: 23.4546298, lon: 120.4037450, flightMins: 30 },
+        TNN: { id: "apt_tnn", code: "TNN", name: "台南機場",     lat: 22.9479939, lon: 120.2162272, flightMins: 30 },
+        KHH: { id: "apt_khh", code: "KHH", name: "高雄小港機場", lat: 22.5746254, lon: 120.3473323, flightMins: 40 },
+        CMJ: { id: "apt_cmj", code: "CMJ", name: "七美機場",     lat: 23.2117472, lon: 119.4179266, flightMins: 20 }
+    };
+
+    const PORTS = {
+        magong:    { name: "澎湖港馬公碼頭區（馬公港）", lat: 23.5605280, lon: 119.5705560, zoom: 14 },
+        budai:     { name: "嘉義布袋港",                 lat: 23.3786830, lon: 120.1383120, zoom: 14 },
+        kaohsiung: { name: "高雄小港港口",               lat: 22.6184878, lon: 120.2742688, zoom: 14 }
+    };
+
+    // 航線節點：僅供預計抵達時間計算使用（地圖上不繪製直線）
+    const SEA_ROUTES_WAYPOINTS = {
+        "布袋 ⇄ 澎湖": {
+            displayLabel: "嘉義(布袋) - 澎湖(馬公)",
+            portA: "嘉義布袋港",
+            portB: "澎湖港馬公碼頭區（馬公港）",
+            waypoints: [
+                [23.3786830, 120.1383120],
+                [23.3950000, 120.0600000],
+                [23.4650000, 119.8300000],
+                [23.5150000, 119.6400000],
+                [23.5500000, 119.5520000],
+                [23.5605280, 119.5705560]
+            ]
+        },
+        "布袋 ➔ 東吉": {
+            displayLabel: "布袋 -> 東吉 -> 七美 -> 馬公 -> 布袋 (布袋➔東吉段)",
+            portA: "嘉義布袋港",
+            portB: "東吉港",
+            waypoints: [
+                [23.3786830, 120.1383120],
+                [23.3300000, 119.9200000],
+                [23.2547850, 119.6674800]
+            ]
+        },
+        "東吉 ➔ 七美": {
+            displayLabel: "布袋 -> 東吉 -> 七美 -> 馬公 -> 布袋 (東吉➔七美段)",
+            portA: "東吉港",
+            portB: "南滬港（七美）",
+            waypoints: [
+                [23.2547850, 119.6674800],
+                [23.2250000, 119.5400000],
+                [23.1958200, 119.4188000]
+            ]
+        },
+        "七美 ➔ 馬公": {
+            displayLabel: "布袋 -> 東吉 -> 七美 -> 馬公 -> 布袋 (七美➔馬公段)",
+            portA: "南滬港（七美）",
+            portB: "澎湖港馬公碼頭區（馬公港）",
+            waypoints: [
+                [23.1958200, 119.4188000],
+                [23.3619550, 119.5081550],
+                [23.5126766, 119.5187694],
+                [23.5605280, 119.5705560]
+            ]
+        },
+        "高雄 ⇄ 澎湖": {
+            displayLabel: "高雄 - 澎湖(馬公)",
+            portA: "高雄小港港口",
+            portB: "馬公港1號國際郵輪碼頭",
+            waypoints: [
+                [22.6184878, 120.2742688],
+                [22.6300000, 120.2200000],
+                [22.9500000, 119.9500000],
+                [23.3200000, 119.6600000],
+                [23.5350000, 119.5400000],
+                [23.5626940, 119.5651930]
+            ]
+        },
+        "赤崁 ⇄ 吉貝": {
+            displayLabel: "赤崁 ⇄ 吉貝",
+            portA: "赤崁碼頭",
+            portB: "吉貝碼頭",
+            waypoints: [
+                [23.6687300, 119.6030000],
+                [23.7020000, 119.5850000],
+                [23.7388700, 119.6116000]
+            ]
+        },
+        "赤崁 ⇄ 吉貝 ⇄ 目斗": {
+            displayLabel: "赤崁 ⇄ 吉貝 ⇄ 目斗",
+            portA: "赤崁碼頭",
+            portB: "吉貝碼頭",
+            waypoints: [
+                [23.6687300, 119.6030000],
+                [23.7020000, 119.5850000],
+                [23.7388700, 119.6116000],
+                [23.7860000, 119.6005000]
+            ]
+        },
+        "馬公 ⇄ 望安 ⇄ 七美": {
+            displayLabel: "馬公 ⇄ 望安 ⇄ 七美",
+            portA: "光正碼頭（南海觀光碼頭）",
+            portB: "南滬港（七美）",
+            waypoints: [
+                [23.5654011, 119.5718797],
+                [23.5126766, 119.5187694],
+                [23.4865740, 119.5169060],
+                [23.3619550, 119.5081550],
+                [23.2500000, 119.4500000],
+                [23.1958200, 119.4188000]
+            ]
+        },
+        "馬公 ⇄ 望安 ⇄ 將軍": {
+            displayLabel: "馬公 ⇄ 望安 ⇄ 將軍",
+            portA: "光正碼頭（南海觀光碼頭）",
+            portB: "將軍港（將軍澳嶼碼頭）",
+            waypoints: [
+                [23.5654011, 119.5718797],
+                [23.5126766, 119.5187694],
+                [23.3619550, 119.5081550],
+                [23.3629320, 119.5209040]
+            ]
+        },
+        "望安 ⇄ 將軍 ⇄ 馬公": {
+            displayLabel: "望安 ⇄ 將軍 ⇄ 馬公",
+            portA: "潭門港",
+            portB: "光正碼頭（南海觀光碼頭）",
+            waypoints: [
+                [23.3619550, 119.5081550],
+                [23.3629320, 119.5209040],
+                [23.5126766, 119.5187694],
+                [23.5654011, 119.5718797]
+            ]
+        },
+        "岐頭 ⇄ 鳥嶼": {
+            displayLabel: "岐頭 ⇄ 鳥嶼",
+            portA: "岐頭碼頭",
+            portB: "鳥嶼碼頭",
+            waypoints: [
+                [23.6495500, 119.6093000],
+                [23.6550000, 119.6350000],
+                [23.6601000, 119.6575400]
+            ]
+        },
+        "岐頭 ⇄ 員貝": {
+            displayLabel: "岐頭 ⇄ 員貝",
+            portA: "岐頭碼頭",
+            portB: "員貝碼頭",
+            waypoints: [
+                [23.6495500, 119.6093000],
+                [23.6480000, 119.6200000],
+                [23.6467226, 119.6306219]
+            ]
+        },
+        "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘": {
+            displayLabel: "岐頭 ⇄ 鳥嶼 ⇄ 澎澎灘",
+            portA: "岐頭碼頭",
+            portB: "鳥嶼碼頭",
+            waypoints: [
+                [23.6495500, 119.6093000],
+                [23.6560000, 119.6420000],
+                [23.6601000, 119.6575400]
+            ]
+        },
+        "馬公 ⇄ 望安 ⇄ 將軍 ⇄ 南方四島": {
+            displayLabel: "馬公 ⇄ 望安 ⇄ 將軍 ⇄ 南方四島",
+            portA: "光正碼頭（南海觀光碼頭）",
+            portB: "東吉港",
+            waypoints: [
+                [23.5654011, 119.5718797],
+                [23.5126766, 119.5187694],
+                [23.4865740, 119.5169060],
+                [23.3619550, 119.5081550],
+                [23.3629320, 119.5209040],
+                [23.2562900, 119.5112990],
+                [23.2547850, 119.6674800]
+            ]
+        },
+        "馬公 ⇄ 花嶼": {
+            displayLabel: "馬公 ⇄ 花嶼",
+            portA: "光正碼頭（南海觀光碼頭）",
+            portB: "花嶼碼頭",
+            waypoints: [
+                [23.5654011, 119.5718797],
+                [23.5126766, 119.5187694],
+                [23.3986810, 119.3176340]
+            ]
+        },
+        "澎湖水域": {
+            displayLabel: "澎湖水域航線",
+            portA: "光正碼頭（南海觀光碼頭）",
+            portB: "潭門港",
+            waypoints: [
+                [23.5654011, 119.5718797],
+                [23.5126766, 119.5187694],
+                [23.4865740, 119.5169060],
+                [23.3619550, 119.5081550]
+            ]
+        }
+    };
+
+    const ZONES = {
+        all_corridor: { name: "布袋 / 馬公 全航線", lat: 23.1200000, lon: 119.9200000, zoom: 9 }
+    };
+
+    let currentZone = ZONES.all_corridor;
+    let shipStatusText = "船舶載入中";
+    let flightStatusText = "航班載入中";
+    let aircraftStatusText = "航機位置載入中";
+    let aircraftStatusWarn = false;
+    let shipCountText = "船舶 0 艘";
+    let flightCountText = "航班 0 班";
+    let cachedToken = null;
+    let tokenExpireTime = 0;
+    let allLiveShips = [];
+    let allLiveFlights = [];
+
+    const BASEMAPS = {
+        osm_hot: L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+            maxZoom: 21,
+            maxNativeZoom: 19,
+            attribution: '© OpenStreetMap contributors, Humanitarian OpenStreetMap Team (無門牌清爽版)'
+        }),
+        nlsc_emap2: L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}', {
+            maxZoom: 21,
+            maxNativeZoom: 19,
+            attribution: '© 內政部國土測繪中心 (無門牌通用版)'
+        }),
+        esri_sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 21,
+            maxNativeZoom: 19,
+            attribution: '© Esri World Imagery'
+        })
+    };
+
+    const map = L.map('map', {
+        center: [currentZone.lat, currentZone.lon],
+        zoom: currentZone.zoom,
+        maxZoom: 21,
+        layers: [BASEMAPS.osm_hot]
+    });
+    let activeBasemap = BASEMAPS.osm_hot;
+
+    function changeBasemap() {
+        const key = document.getElementById('basemapSelect').value;
+        const nextLayer = BASEMAPS[key];
+        if (nextLayer && nextLayer !== activeBasemap) {
+            map.removeLayer(activeBasemap);
+            nextLayer.addTo(map);
+            activeBasemap = nextLayer;
+        }
+    }
+
+    const piersLayer = L.layerGroup().addTo(map);
+    const visitorCentersLayer = L.layerGroup().addTo(map);
+    const airportLayer = L.layerGroup().addTo(map);
+
+    function initPOILayers() {
+        PIERS_AND_PORTS.forEach(pier => {
+            L.circleMarker([pier.lat, pier.lon], {
+                radius: pier.isMajor ? 7 : 5.5,
+                color: '#ffffff',
+                weight: 2,
+                fillColor: pier.isMajor ? '#e11d48' : '#0d9488',
+                fillOpacity: 1
+            }).bindTooltip(pier.name, {
+                permanent: pier.isMajor,
+                direction: 'top',
+                className: pier.isMajor ? 'port-label' : 'pier-label',
+                offset: [0, -6]
+            }).bindPopup(`
+                <div style="font-size:13px; line-height:1.6;">
+                    <strong style="font-size:14px; color:#0f766e;">⚓ ${pier.name}</strong><br>
+                    <b>緯度：</b>${pier.lat.toFixed(6)} | <b>經度：</b>${pier.lon.toFixed(6)}
+                </div>
+            `).addTo(piersLayer);
+        });
+
+        VISITOR_CENTERS.forEach(vc => {
+            L.circleMarker([vc.lat, vc.lon], {
+                radius: 5,
+                color: '#ffffff',
+                weight: 1.5,
+                fillColor: '#d97706',
+                fillOpacity: 0.95
+            }).bindTooltip(vc.name, {
+                permanent: false,
+                direction: 'top',
+                className: 'visitor-label',
+                offset: [0, -5]
+            }).bindPopup(`
+                <div style="font-size:13px; line-height:1.6;">
+                    <strong style="font-size:14px; color:#b45309;">ℹ️ ${vc.name}</strong><br>
+                    <b>緯度：</b>${vc.lat.toFixed(6)} | <b>經度：</b>${vc.lon.toFixed(6)}
+                </div>
+            `).addTo(visitorCentersLayer);
+        });
+
+        Object.values(AIRPORTS).forEach(apt => {
+            L.circleMarker([apt.lat, apt.lon], {
+                radius: 6.5,
+                color: '#ffffff',
+                weight: 2,
+                fillColor: '#9333ea',
+                fillOpacity: 1
+            }).bindTooltip(`${apt.name} (${apt.code})`, {
+                permanent: true,
+                direction: 'top',
+                className: 'airport-label',
+                offset: [0, -6]
+            }).bindPopup(`
+                <div style="font-size:13px; line-height:1.6;">
+                    <strong style="font-size:14px; color:#7e22ce;">✈️ ${apt.name} (${apt.code})</strong><br>
+                    <b>緯度：</b>${apt.lat.toFixed(6)} | <b>經度：</b>${apt.lon.toFixed(6)}
+                </div>
+            `).on('click', () => {
+                if (apt.code === 'MZG') return;
+                document.getElementById('select-airport').value = apt.code;
+                onAirportFilterChange();
+            }).addTo(airportLayer);
+        });
+    }
+
+    initPOILayers();
+
+    const shipMarkersLayer = L.layerGroup().addTo(map);
+    const flightMarkersLayer = L.layerGroup().addTo(map);
+
+    function togglePOILayers() {
+        const showPiers = document.getElementById('chk-piers').checked;
+        const showVisitors = document.getElementById('chk-visitors').checked;
+        const showAirports = document.getElementById('chk-airports').checked;
+
+        if (showPiers) { if (!map.hasLayer(piersLayer)) map.addLayer(piersLayer); }
+        else { if (map.hasLayer(piersLayer)) map.removeLayer(piersLayer); }
+
+        if (showVisitors) { if (!map.hasLayer(visitorCentersLayer)) map.addLayer(visitorCentersLayer); }
+        else { if (map.hasLayer(visitorCentersLayer)) map.removeLayer(visitorCentersLayer); }
+
+        if (showAirports) { if (!map.hasLayer(airportLayer)) map.addLayer(airportLayer); }
+        else { if (map.hasLayer(airportLayer)) map.removeLayer(airportLayer); }
+    }
+
+    const AUTO_REFRESH_MS = 2 * 60 * 1000;
+    let nextRefreshAt = 0;
+
+    function clockNow() {
+        return new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+    }
+
+    function countdownText() {
+        if (!nextRefreshAt) return '';
+        const total = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
+        const mm = String(Math.floor(total / 60)).padStart(2, '0');
+        const ss = String(total % 60).padStart(2, '0');
+        return `下次更新：${mm}分${ss}秒後`;
+    }
+
+    function updateStatusBar() {
+        document.getElementById('status-text').innerText = `${shipStatusText}｜${flightStatusText}`;
+        const acEl = document.getElementById('aircraft-status');
+        acEl.innerText = aircraftStatusText;
+        acEl.className = aircraftStatusWarn ? 'warn' : '';
+        document.getElementById('refresh-countdown').innerText = countdownText();
+        document.getElementById('ship-count').innerText = `${shipCountText}｜${flightCountText}`;
+    }
+
+    function refreshAllData() {
+        nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
+        updateStatusBar();
+        fetchTDXShipData();
+        fetchFlightData();
+        fetchAircraftPositions();
+    }
+
+    function changeZone() {
+        const key = document.getElementById('zoneSelect').value;
+        currentZone = ZONES[key];
+        map.flyTo([currentZone.lat, currentZone.lon], currentZone.zoom, { duration: 0.8 });
+    }
+
+    function onAirportFilterChange() {
+        const selectedAirport = document.getElementById('select-airport').value;
+        if (selectedAirport === 'ALL') {
+            map.flyTo([currentZone.lat, currentZone.lon], currentZone.zoom, { duration: 0.8 });
+        } else if (AIRPORTS[selectedAirport]) {
+            const apt = AIRPORTS[selectedAirport];
+            const mzg = AIRPORTS.MZG;
+            map.flyToBounds(L.latLngBounds([[apt.lat, apt.lon], [mzg.lat, mzg.lon]]), { padding: [70, 70], maxZoom: 11, duration: 0.8 });
+        }
+        renderFlights();
+    }
+
+    function focusPort(portKey) {
+        const p = PORTS[portKey];
+        if (p) map.flyTo([p.lat, p.lon], p.zoom, { duration: 0.8 });
+    }
+
+    function getDistanceMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const toRad = deg => deg * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 +
+                  Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function getBearing(lat1, lon1, lat2, lon2) {
+        const toRad = deg => deg * Math.PI / 180;
+        const toDeg = rad => rad * 180 / Math.PI;
+        const dLon = toRad(lon2 - lon1);
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+                  Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    function angleDiff(a, b) {
+        const diff = Math.abs(a - b) % 360;
+        return diff > 180 ? 360 - diff : diff;
+    }
+
+    function getNearestPortInfo(lat, lon) {
+        let minPort = "";
+        let minDist = Infinity;
+        for (const p of PIERS_AND_PORTS) {
+            const d = getDistanceMeters(lat, lon, p.lat, p.lon);
+            if (d < minDist) { minDist = d; minPort = p.name; }
+        }
+        return `距${minPort} ${(minDist / 1000).toFixed(1)} km`;
+    }
+
+    // 嚴格地理檢查：非台澎固定航線或在港內作業的船隻不計算台澎航線 ETA
+    function evaluateRouteProjection(routeDef, lat, lon, sog, cog) {
+        const wps = routeDef.waypoints;
+        let bestSegIdx = 0;
+        let bestProjFactor = 0;
+        let minSegDist = Infinity;
+
+        for (let i = 0; i < wps.length - 1; i++) {
+            const A = wps[i];
+            const B = wps[i + 1];
+            const dx = B[1] - A[1];
+            const dy = B[0] - A[0];
+            const lenSq = dx * dx + dy * dy;
+            let t = 0;
+            if (lenSq > 0) {
+                t = ((lon - A[1]) * dx + (lat - A[0]) * dy) / lenSq;
+                t = Math.max(0, Math.min(1, t));
+            }
+            const projLat = A[0] + t * dy;
+            const projLon = A[1] + t * dx;
+            const d = getDistanceMeters(lat, lon, projLat, projLon);
+            if (d < minSegDist) {
+                minSegDist = d;
+                bestSegIdx = i;
+                bestProjFactor = t;
+            }
+        }
+
+        const segStart = wps[bestSegIdx];
+        const segEnd = wps[bestSegIdx + 1];
+        const projLat = segStart[0] + bestProjFactor * (segEnd[0] - segStart[0]);
+        const projLon = segStart[1] + bestProjFactor * (segEnd[1] - segStart[1]);
+
+        const forwardBearing = getBearing(segStart[0], segStart[1], segEnd[0], segEnd[1]);
+        const reverseBearing = (forwardBearing + 180) % 360;
+
+        let isForward = true;
+        if (sog > 0.5 && cog !== undefined && cog !== null) {
+            isForward = angleDiff(cog, forwardBearing) <= angleDiff(cog, reverseBearing);
+        } else {
+            const distToFirst = getDistanceMeters(lat, lon, wps[0][0], wps[0][1]);
+            const distToLast = getDistanceMeters(lat, lon, wps[wps.length - 1][0], wps[wps.length - 1][1]);
+            isForward = distToFirst <= distToLast;
+        }
+
+        const origin = isForward ? routeDef.portA : routeDef.portB;
+        const destination = isForward ? routeDef.portB : routeDef.portA;
+
+        let remainingChannelMeters = 0;
+        if (isForward) {
+            remainingChannelMeters += getDistanceMeters(projLat, projLon, segEnd[0], segEnd[1]);
+            for (let i = bestSegIdx + 1; i < wps.length - 1; i++) {
+                remainingChannelMeters += getDistanceMeters(wps[i][0], wps[i][1], wps[i + 1][0], wps[i + 1][1]);
+            }
+        } else {
+            remainingChannelMeters += getDistanceMeters(projLat, projLon, segStart[0], segStart[1]);
+            for (let i = bestSegIdx - 1; i >= 0; i--) {
+                remainingChannelMeters += getDistanceMeters(wps[i + 1][0], wps[i + 1][1], wps[i][0], wps[i][1]);
+            }
+        }
+
+        const remainingNmi = remainingChannelMeters / 1852;
+        let etaText = "停泊中 / 待航 (無航速)";
+        if (sog >= 0.5) {
+            if (remainingNmi <= 0.15) {
+                etaText = "即將靠港 / 已抵達";
+            } else {
+                const totalMinutes = Math.round((remainingNmi / sog) * 60);
+                if (totalMinutes < 60) {
+                    etaText = `約 ${totalMinutes} 分鐘 (沿標示航線剩餘 ${remainingNmi.toFixed(1)} 海浬)`;
+                } else {
+                    const hrs = Math.floor(totalMinutes / 60);
+                    const mins = totalMinutes % 60;
+                    etaText = `約 ${hrs} 小時 ${mins} 分鐘 (沿標示航線剩餘 ${remainingNmi.toFixed(1)} 海浬)`;
+                }
+            }
+        }
+
+        return {
+            origin,
+            destination,
+            etaText,
+            matchedRouteLabel: routeDef.displayLabel || "標示航線",
+            crossTrackDist: minSegDist
+        };
+    }
+
+    function analyzeShipNavigation(fleetRoute, lat, lon, sog, cog, isTargetShip) {
+        if (!isTargetShip) {
+            return {
+                origin: "港口/非指定水域",
+                destination: "非指定水域",
+                etaText: "非指定固定航線（不估算航程）",
+                matchedRouteLabel: "港區作業/一般船舶"
+            };
+        }
+
+        if (fleetRoute === "布袋 ⇄ 澎湖") {
+            const candidateKeys = ["布袋 ⇄ 澎湖", "布袋 ➔ 東吉", "東吉 ➔ 七美", "七美 ➔ 馬公"];
+            let bestEval = null;
+            for (const k of candidateKeys) {
+                const ev = evaluateRouteProjection(SEA_ROUTES_WAYPOINTS[k], lat, lon, sog, cog);
+                if (!bestEval || ev.crossTrackDist < bestEval.crossTrackDist) {
+                    bestEval = ev;
+                }
+            }
+            if (bestEval && bestEval.crossTrackDist > 25000) {
+                return { origin: "港口或岸際", destination: "未在航道上", etaText: "目前停泊或未在台澎主航道上", matchedRouteLabel: fleetRoute };
+            }
+            return bestEval;
+        }
+
+        const routeDef = SEA_ROUTES_WAYPOINTS[fleetRoute] || SEA_ROUTES_WAYPOINTS["布袋 ⇄ 澎湖"];
+        const ev = evaluateRouteProjection(routeDef, lat, lon, sog, cog);
+        if (ev.crossTrackDist > 25000) {
+            return { origin: "港口或岸際", destination: "未在航道上", etaText: "目前停泊或未在台澎主航道上", matchedRouteLabel: fleetRoute };
+        }
+        return ev;
+    }
+
+    async function getTDXAccessToken() {
+        const now = Date.now();
+        if (cachedToken && now < tokenExpireTime) return cachedToken;
+        const clientId = TDX_CONFIG.CLIENT_ID.trim();
+        const clientSecret = TDX_CONFIG.CLIENT_SECRET.trim();
+        if (!clientId) throw new Error("請先填入 TDX Client ID");
+
+        const tokenUrl = 'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token';
+        const params = new URLSearchParams();
+        params.append('grant_type', 'client_credentials');
+        params.append('client_id', clientId);
+        params.append('client_secret', clientSecret);
+
+        const response = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString()
+        });
+        if (!response.ok) throw new Error(`TDX Token 驗證失敗 (${response.status})`);
+        const data = await response.json();
+        cachedToken = data.access_token;
+        tokenExpireTime = now + (data.expires_in - 300) * 1000;
+        return cachedToken;
+    }
+
+    async function fetchTDXShipData() {
+        shipStatusText = '船舶更新中';
+        updateStatusBar();
+        try {
+            const token = await getTDXAccessToken();
+            const apiUrl = 'https://tdx.transportdata.tw/api/basic/v3/Ship/LivePosition?%24format=JSON';
+            const response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+            });
+            if (response.status === 429) throw new Error("API 請求過於頻繁 (429)，請稍候再試");
+            if (!response.ok) throw new Error(`API 請求失敗 (${response.status})`);
+            const result = await response.json();
+            const rawList = result.LivePositions || result || [];
+            allLiveShips = rawList.filter(ship => !isBlacklistedShip(ship));
+            shipStatusText = `船舶更新 ${clockNow()}`;
+            renderShips();
+        } catch (err) {
+            shipStatusText = `船舶：${err.message}`;
+            renderShips();
+        }
+    }
+
+    // ===== 航班資料：來程（目的地為澎湖），規則與綜合系統航班資訊一致 =====
+    const FLIGHT_HISTORY_MINUTES = 90;
+
+    function normalizeText(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
+
+    function displayCell(cell) {
+        if (!cell) return '';
+        if (cell.f !== undefined && cell.f !== null) return normalizeText(cell.f);
+        if (cell.v === undefined || cell.v === null) return '';
+        return normalizeText(cell.v);
+    }
+
+    function rowsFromGViz(response) {
+        if (!response || response.status === 'error' || !response.table) throw new Error('航班資料讀取失敗');
+        return (response.table.rows || []).map(row => (row.c || []).map(displayCell));
+    }
+
+    function loadGVizSheet(sheetName) {
+        return new Promise((resolve, reject) => {
+            const handler = '__flightCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            const script = document.createElement('script');
+            let finished = false;
+            const cleanup = () => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timer);
+                script.remove();
+                try { delete window[handler]; } catch (_) { window[handler] = undefined; }
+            };
+            window[handler] = response => {
+                try { resolve(rowsFromGViz(response)); }
+                catch (error) { reject(error); }
+                finally { cleanup(); }
+            };
+            const tqx = `out:json;responseHandler:${handler};reqId:0`;
+            script.src = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(FLIGHT_SHEET_ID)}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&headers=0&tqx=${encodeURIComponent(tqx)}&t=${Date.now()}`;
+            script.async = true;
+            script.onerror = () => { cleanup(); reject(new Error('航班資料無法連線')); };
+            const timer = setTimeout(() => { cleanup(); reject(new Error('航班資料讀取逾時')); }, 30000);
+            document.head.appendChild(script);
+        });
+    }
+
+    async function loadSheetWithRetry(sheetName) {
+        try { return await loadGVizSheet(sheetName); }
+        catch (firstError) {
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            return await loadGVizSheet(sheetName);
+        }
+    }
+
+    function validDataRows(rows, minimumCells) {
+        return rows.filter(row => {
+            if (row.length < minimumCells) return false;
+            const first = normalizeText(row[0]);
+            const flight = normalizeText(row[1]);
+            if (!first || !flight) return false;
+            if (/航空公司|Airlines/i.test(first)) return false;
+            if (/班次|Flight\s*No/i.test(flight)) return false;
+            return /\d/.test(flight);
+        });
+    }
+
+    function trackingFlightNo(airline, rawFlightNo) {
+        const air = normalizeText(airline).toUpperCase();
+        let cleanNo = normalizeText(rawFlightNo).replace(/[^A-Z0-9]/gi, '').toUpperCase();
+        let prefix = '';
+        if (air.includes('立榮') || air.includes('UIA')) prefix = 'UIA';
+        else if (air.includes('華信') || air.includes('MDA')) prefix = 'MDA';
+        else if (air.includes('德安') || air.includes('DAC')) prefix = 'DAC';
+        else return cleanNo;
+        cleanNo = cleanNo.replace(/^(B7|UIA|AE|MDA|DAH|DAC)/, '');
+        return cleanNo ? prefix + cleanNo : prefix;
+    }
+
+    function parseClockMinutes(value) {
+        const match = normalizeText(value).match(/^(\d{1,2}):(\d{2})$/);
+        if (!match) return null;
+        const hours = Number(match[1]);
+        const minutes = Number(match[2]);
+        if (hours > 23 || minutes > 59) return null;
+        return hours * 60 + minutes;
+    }
+
+    function taipeiNowMinutes() {
+        const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return Number(values.hour) * 60 + Number(values.minute) + Number(values.second) / 60;
+    }
+
+    function minutesFromNow(value) {
+        const target = parseClockMinutes(value);
+        return target === null ? null : target - taipeiNowMinutes();
+    }
+
+    function isOlderThan(value, minutes = FLIGHT_HISTORY_MINUTES) {
+        const difference = minutesFromNow(value);
+        return difference !== null && difference < -minutes;
+    }
+
+    function arrivalStatus(remark, scheduledStart, actualStart, scheduledEnd, actualEnd) {
+        const raw = normalizeText(remark);
+        const lower = raw.toLowerCase();
+        const end = actualEnd || scheduledEnd;
+        if (lower.includes('arrived') || lower.includes('已到')) return { text: '已到 Arrived', className: 'Arrived', history: isOlderThan(end) };
+        if (lower.includes('cancel') || lower.includes('取消')) return { text: '取消航班 Cancelled', className: 'Cancelled', history: isOlderThan(scheduledEnd) };
+        if (lower.includes('delay') || lower.includes('延誤')) return { text: '延誤 Delayed', className: 'Delayed', history: isOlderThan(end) };
+        if (lower.includes('on time') || lower.includes('準時') || !raw) {
+            const startDiff = minutesFromNow(actualStart || scheduledStart);
+            const endDiff = minutesFromNow(end);
+            if (startDiff !== null && endDiff !== null) {
+                if (startDiff > 0 && endDiff > 30) return { text: '待起飛 Waiting', className: 'Waiting', history: false };
+                if (startDiff < 0 && endDiff >= 11) return { text: '航行中 OnFlying', className: 'OnFlying', history: false };
+                if (startDiff < 0 && endDiff >= 6) return { text: '即將抵達 Comming Soon', className: 'CommingSoon', history: false };
+                if (startDiff < 0 && endDiff >= 0) return { text: '即將降落 Landing', className: 'Landing', history: false };
+            }
+        }
+        return { text: raw || '準時 On Time', className: 'OnTime', history: isOlderThan(end) };
+    }
+
+    const FLIGHT_STATUS_COLORS = {
+        Arrived: { bg: '#49b653', fg: '#ffffff' },
+        Cancelled: { bg: '#d71920', fg: '#ffffff' },
+        Delayed: { bg: '#e3352f', fg: '#ffffff' },
+        Waiting: { bg: '#ffffff', fg: '#111827', border: '#64748b' },
+        OnTime: { bg: '#1479d1', fg: '#ffffff' },
+        OnFlying: { bg: '#50009a', fg: '#ffffff' },
+        CommingSoon: { bg: '#00c7d4', fg: '#ffffff' },
+        Landing: { bg: '#ff8700', fg: '#ffffff' }
+    };
+
+    function extractAirportCode(text) {
+        const m = String(text || '').toUpperCase().match(/[A-Z]{3}/);
+        return m ? m[0] : '';
+    }
+
+    async function fetchFlightData() {
+        flightStatusText = '航班更新中';
+        updateStatusBar();
+        try {
+            const arrRows = await loadSheetWithRetry(FLIGHT_ARR_SHEET);
+            const allowedAirports = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
+
+            // 來程：航空公司、班次、來自、機型、表定起飛、實際起飛、表定到達、預估/實際到達、備註
+            allLiveFlights = validDataRows(arrRows, 9).map(r => ({
+                airline: r[0],
+                flight: trackingFlightNo(r[0], r[1]),
+                place: r[2],
+                DepartureAirportID: extractAirportCode(r[2]),
+                ArrivalAirportID: 'MZG',
+                scheduledStart: r[4], actualStart: r[5], scheduledEnd: r[6], actualEnd: r[7],
+                status: arrivalStatus(r[8], r[4], r[5], r[6], r[7])
+            })).filter(f => allowedAirports.includes(f.DepartureAirportID));
+
+            flightStatusText = `航班更新 ${clockNow()}`;
+            renderFlights();
+        } catch (err) {
+            allLiveFlights = [];
+            flightStatusText = `航班：${err.message || '讀取失敗'}`;
+            renderFlights();
+        }
+    }
+
+    function createVesselIcon(cog = 0, sog = 0, isSpecial = false) {
+        const fillColor = isSpecial ? '#d97706' : (sog > 0.5 ? '#0d9488' : '#0284c7');
+        return L.divIcon({
+            className: 'vessel-icon',
+            html: `<div style="transform: rotate(${cog}deg); width: 24px; height: 24px; display:flex; align-items:center; justify-content:center;">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="${fillColor}" stroke="#ffffff" stroke-width="2">
+                        <polygon points="12,2 20,21 12,17 4,21" />
+                    </svg>
+                   </div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+    }
+
+    // 指定船舶卡片（含線上／查無紀錄）
+    function renderFleetShip(fleet, live, listEl) {
+        const lat = live?.VesselPosition?.PositionLat;
+        const lon = live?.VesselPosition?.PositionLon;
+        const isOnline = Boolean(lat && lon);
+        const activeCallSign = fleet.callSign || live?.CallSign || '';
+        const twPortUrl = activeCallSign ? `https://sdci.twport.com.tw/khbweb/AIS_OSM.aspx?SIGNAL=${activeCallSign}` : '';
+        const defaultRouteDef = SEA_ROUTES_WAYPOINTS[fleet.route] || SEA_ROUTES_WAYPOINTS["布袋 ⇄ 澎湖"];
+        const palette = getShipColor(fleet);
+        let navInfo = {
+            origin: defaultRouteDef.portA,
+            destination: defaultRouteDef.portB,
+            etaText: "查無 AIS 即時座標",
+            matchedRouteLabel: defaultRouteDef.displayLabel || fleet.route
+        };
+
+        let marker = null;
+        if (isOnline) {
+            const sog = live.SOG ?? 0;
+            const cog = live.COG ?? live.TrueHeading ?? 0;
+            const isPenghu = fleet.no === "99";
+            navInfo = analyzeShipNavigation(fleet.route, lat, lon, sog, cog, true);
+
+            marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, isPenghu) }).addTo(shipMarkersLayer);
+            marker.bindTooltip(`No.${fleet.no} ${fleet.nameZh} (${sog} kts)`, {
+                permanent: true, direction: 'right', offset: [12, 0],
+                className: isPenghu ? 'ship-name-tooltip penghu-ferry' : 'ship-name-tooltip'
+            });
+            marker.bindPopup(`
+                <div style="font-size:13px; line-height:1.65; min-width:240px;">
+                    <strong style="font-size:15px; color:${palette.color};">No.${fleet.no} ${fleet.nameZh}</strong><br>
+                    <b>標示航線：</b><span style="color:#1d4ed8;font-weight:bold;">${navInfo.matchedRouteLabel}</span><br>
+                    <b>航速：</b>${sog} 節 (航向 ${cog}°)<br>
+                    <b>起點：</b>${navInfo.origin}<br>
+                    <b>終點：</b>${navInfo.destination}<br>
+                    <b>經緯度：</b>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>
+                    <b>預計抵達終點：</b><span style="color:#be123c; font-weight:700;">${navInfo.etaText}</span><br>
+                    <b>最近碼頭距離：</b>${getNearestPortInfo(lat, lon)}<br>
+                    ${twPortUrl ? `<a href="${twPortUrl}" target="_blank" style="color:#0284c7; font-weight:bold;">🔗 港務公司單船追蹤</a>` : ''}
+                </div>
+            `);
+        }
+
+        const card = document.createElement('div');
+        card.className = isOnline ? 'ship-card' : 'ship-card offline';
+        applyCardColor(card, palette);
+        card.innerHTML = `
+            <div class="ship-title">
+                <span>🚢 No.${fleet.no} ${fleet.nameZh}<span class="route-tag" style="background:${palette.tint}; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
+                <span class="${isOnline ? 'badge-online' : 'badge-offline'}">${isOnline ? 'AIS 線上' : '查無紀錄'}</span>
+            </div>
+            <div class="ship-meta">
+                <span>起點: ${navInfo.origin}</span>
+                <span>終點: ${navInfo.destination}</span>
+                <span>航速: ${isOnline ? (live.SOG ?? 0) + ' 節 (kts)' : '-'}</span>
+                <span>航向: ${isOnline ? (live.COG ?? live.TrueHeading ?? 0) + '°' : '-'}</span>
+                <span style="grid-column: span 2;">經緯度: ${isOnline ? `${lat.toFixed(6)}, ${lon.toFixed(6)}` : '-'}</span>
+                <span style="grid-column: span 2; font-weight:700; color: ${isOnline ? '#be123c' : '#64748b'};">
+                    預計抵達終點: ${isOnline ? navInfo.etaText : '查無 AIS 紀錄'}
+                </span>
+            </div>
+        `;
+        card.onclick = () => {
+            if (isOnline && marker) {
+                map.flyTo([lat, lon], 13, { duration: 0.8 });
+                marker.openPopup();
+            } else {
+                alert(`【No.${fleet.no} ${fleet.nameZh}】目前查無即時 AIS 座標紀錄。`);
+            }
+        };
+        listEl.appendChild(card);
+        return isOnline;
+    }
+
+    // 一般船舶卡片
+    function renderGeneralShip(ship, listEl) {
+        const lat = ship.VesselPosition.PositionLat;
+        const lon = ship.VesselPosition.PositionLon;
+        const mmsi = String(ship.MMSI || '').trim();
+        const nameZh = ship.VesselName?.Zh_tw || ship.VesselName?.En || `MMSI: ${mmsi}`;
+        const sog = ship.SOG ?? 0;
+        const cog = ship.COG ?? ship.TrueHeading ?? 0;
+        const navInfo = analyzeShipNavigation("", lat, lon, sog, cog, false);
+        const palette = getShipColor(null);
+
+        const marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, false) }).addTo(shipMarkersLayer);
+        marker.bindTooltip(`${nameZh} (${sog} kts)`, { permanent: true, direction: 'right', offset: [12, 0], className: 'ship-name-tooltip' });
+        marker.bindPopup(`
+            <div style="font-size:13px; line-height:1.65; min-width:240px;">
+                <strong style="font-size:15px; color:${palette.color};">${nameZh}</strong><br>
+                <b>標示航線：</b><span style="color:#1d4ed8;font-weight:bold;">${navInfo.matchedRouteLabel}</span><br>
+                <b>航速：</b>${sog} 節 (航向 ${cog}°)<br>
+                <b>起點：</b>${navInfo.origin}<br>
+                <b>終點：</b>${navInfo.destination}<br>
+                <b>經緯度：</b>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>
+                <b>預計抵達終點：</b><span style="color:#be123c; font-weight:700;">${navInfo.etaText}</span><br>
+                <b>最近碼頭距離：</b>${getNearestPortInfo(lat, lon)}
+            </div>
+        `);
+
+        const card = document.createElement('div');
+        card.className = 'ship-card';
+        applyCardColor(card, palette);
+        card.innerHTML = `
+            <div class="ship-title">
+                <span>🚢 ${nameZh}<span class="route-tag" style="background:#f1f5f9; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
+                <span class="badge-online">AIS 線上</span>
+            </div>
+            <div class="ship-meta">
+                <span>起點: ${navInfo.origin}</span>
+                <span>終點: ${navInfo.destination}</span>
+                <span>航速: ${sog} 節 (kts)</span>
+                <span>航向: ${cog}°</span>
+                <span style="grid-column: span 2;">經緯度: ${lat.toFixed(6)}, ${lon.toFixed(6)}</span>
+                <span style="grid-column: span 2; font-weight:700; color:#be123c;">預計抵達終點: ${navInfo.etaText}</span>
+            </div>
+        `;
+        card.onclick = () => { map.flyTo([lat, lon], 13, { duration: 0.8 }); marker.openPopup(); };
+        listEl.appendChild(card);
+    }
+
+    function renderShips() {
+        shipMarkersLayer.clearLayers();
+        const listEl = document.getElementById('list-ships');
+        listEl.innerHTML = '';
+
+        const liveMapByMMSI = {};
+        allLiveShips.forEach(s => { if (s.MMSI) liveMapByMMSI[String(s.MMSI).trim()] = s; });
+
+        const fleetByLive = new Map();
+        TARGET_FLEET.forEach(f => {
+            const live = findMatchingLiveShip(f, allLiveShips, liveMapByMMSI);
+            if (live && !fleetByLive.has(live)) fleetByLive.set(live, f);
+        });
+
+        // 澎湖周圍海域 20 海浬；高雄 澎湖輪不受 20 海浬限制，其餘規則與其他指定船舶相同
+        const entries = allLiveShips
+            .filter(s => {
+                const lat = s.VesselPosition?.PositionLat;
+                const lon = s.VesselPosition?.PositionLon;
+                if (!lat || !lon) return false;
+                if (fleetByLive.get(s)?.no === "99") return true;
+                return isWithinPenghuRange(lat, lon);
+            })
+            .map(s => ({ live: s, fleet: fleetByLive.get(s) || null }))
+            .sort((a, b) => {
+                if (a.fleet && !b.fleet) return -1;
+                if (!a.fleet && b.fleet) return 1;
+                if (a.fleet && b.fleet) return Number(a.fleet.no) - Number(b.fleet.no);
+                return 0;
+            });
+
+        entries.forEach(({ live, fleet }) => {
+            if (fleet) renderFleetShip(fleet, live, listEl);
+            else renderGeneralShip(live, listEl);
+        });
+
+        shipCountText = `船舶 ${entries.length} 艘`;
+        updateStatusBar();
+    }
+
+    function createAirplaneIcon(bearing = 0, color = '#7e22ce') {
+        return L.divIcon({
+            className: 'vessel-icon',
+            html: `<div style="transform: rotate(${bearing}deg); width: 28px; height: 28px; display:flex; align-items:center; justify-content:center;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="#ffffff" stroke-width="1.5">
+                        <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+                    </svg>
+                   </div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+    }
+
+    // ===== 航機即時位置：多個免費來源同時讀取，同一班機取最新一筆 =====
+    let liveAircraftByCallsign = new Map();
+
+    function withTimeout(promise, ms) {
+        return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('逾時')), ms))]);
+    }
+
+    async function fetchJSON(url, ms = 15000) {
+        const res = await withTimeout(fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' } }), ms);
+        if (!res.ok) throw new Error(String(res.status));
+        return await withTimeout(res.json(), ms);
+    }
+
+    function putAircraft(target, callsign, rec) {
+        if (!callsign || typeof rec.lat !== 'number' || typeof rec.lon !== 'number') return;
+        if (rec.ts && Date.now() - rec.ts > AIRCRAFT_STALE_MS) return;
+        const prev = target.get(callsign);
+        if (prev && (prev.ts || 0) >= (rec.ts || 0)) return;
+        target.set(callsign, rec);
+    }
+
+    function addOpenSkyStates(target, data) {
+        (data?.states || []).forEach(st => {
+            const callsign = String(st[1] || '').replace(/\s+/g, '').toUpperCase();
+            putAircraft(target, callsign, {
+                lat: st[6], lon: st[5],
+                altitude: st[13] ?? st[7],
+                velocity: st[9],
+                track: st[10] ?? 0,
+                onGround: Boolean(st[8]),
+                ts: (st[3] || st[4] || 0) * 1000
+            });
+        });
+    }
+
+    function addAdsbStates(target, data) {
+        const list = data?.ac || data?.aircraft || [];
+        const nowMs = data?.now ? (data.now > 1e12 ? data.now : data.now * 1000) : Date.now();
+        list.forEach(a => {
+            const callsign = String(a.flight || a.callsign || '').replace(/\s+/g, '').toUpperCase();
+            const altFt = typeof a.alt_baro === 'number' ? a.alt_baro : (typeof a.alt_geom === 'number' ? a.alt_geom : null);
+            const seen = typeof a.seen_pos === 'number' ? a.seen_pos : (typeof a.seen === 'number' ? a.seen : 0);
+            putAircraft(target, callsign, {
+                lat: a.lat, lon: a.lon,
+                altitude: altFt !== null ? altFt * 0.3048 : null,
+                velocity: typeof a.gs === 'number' ? a.gs * 0.514444 : null,
+                track: typeof a.track === 'number' ? a.track : 0,
+                onGround: a.alt_baro === 'ground',
+                ts: nowMs - seen * 1000
+            });
+        });
+    }
+
+    async function fetchAircraftPositions() {
+        const merged = new Map();
+        let okCount = 0;
+        const tasks = [
+            ...ADSB_SOURCES.map(url => fetchJSON(url).then(d => { addAdsbStates(merged, d); okCount++; }).catch(() => {})),
+            fetchJSON(OPENSKY_DIRECT_URL).then(d => { if (Array.isArray(d?.states)) { addOpenSkyStates(merged, d); okCount++; } }).catch(() => {}),
+            AIRCRAFT_POSITION_URL
+                ? fetchJSON(AIRCRAFT_POSITION_URL).then(d => { if (Array.isArray(d?.states)) { addOpenSkyStates(merged, d); okCount++; } }).catch(() => {})
+                : Promise.resolve()
+        ];
+        await Promise.all(tasks);
+
+        if (okCount > 0) {
+            liveAircraftByCallsign = merged;
+            aircraftStatusText = `航機位置更新 ${clockNow()}`;
+            aircraftStatusWarn = false;
+        } else {
+            liveAircraftByCallsign = new Map();
+            aircraftStatusText = '⚠ 航機即時位置暫時無法取得';
+            aircraftStatusWarn = true;
+        }
+        updateStatusBar();
+        renderFlights();
+    }
+
+    // 只使用真實即時位置（空中）；查無即時位置則不顯示
+    function getFlightPosition(f) {
+        const live = liveAircraftByCallsign.get(f.flight);
+        if (!live || live.onGround) return null;
+        const mzg = AIRPORTS.MZG;
+        const distKm = getDistanceMeters(live.lat, live.lon, mzg.lat, mzg.lon) / 1000;
+        const remainMins = live.velocity > 0 ? Math.max(1, Math.round(distKm / (live.velocity * 3.6) * 60)) : null;
+        return {
+            lat: live.lat, lon: live.lon, bearing: live.track || 0,
+            altitudeM: live.altitude !== null && live.altitude !== undefined ? Math.round(live.altitude) : null,
+            speedKmh: live.velocity !== null && live.velocity !== undefined ? Math.round(live.velocity * 3.6) : null,
+            distKm: Math.round(distKm), remainMins
+        };
+    }
+
+    function formatClock(totalMinutes) {
+        const m = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    }
+
+    function getEtaClock(f, pos) {
+        if (pos && pos.remainMins) return formatClock(taipeiNowMinutes() + pos.remainMins);
+        return f.actualEnd || f.scheduledEnd || '—';
+    }
+
+    function renderFlights() {
+        flightMarkersLayer.clearLayers();
+        const listEl = document.getElementById('list-flights');
+        listEl.innerHTML = '';
+
+        const selectedAirport = document.getElementById('select-airport').value;
+        const filteredFlights = allLiveFlights.filter(f => {
+            if (f.status.history) return false;
+            if (selectedAirport === 'ALL') return true;
+            return f.DepartureAirportID === selectedAirport;
+        });
+
+        flightCountText = `航班 ${filteredFlights.length} 班`;
+        updateStatusBar();
+
+        if (filteredFlights.length === 0) {
+            const emptyBox = document.createElement('div');
+            emptyBox.className = 'ship-card offline';
+            emptyBox.style.cursor = 'default';
+            emptyBox.innerHTML = `
+                <div class="ship-title"><span>✈️ 澎湖來程航班動態</span><span class="badge-offline">無航班資料</span></div>
+                <div style="font-size:12px; color:#475569; line-height:1.65; margin-top:6px;">
+                    目前無符合條件之航班資料。
+                </div>
+            `;
+            listEl.appendChild(emptyBox);
+            return;
+        }
+
+        filteredFlights.forEach(f => {
+            const depCode = f.DepartureAirportID || '';
+            const depName = AIRPORTS[depCode]?.name || f.place || depCode;
+            const arrName = AIRPORTS.MZG.name;
+            const palette = getAirlineColor(f.airline);
+            const sc = FLIGHT_STATUS_COLORS[f.status.className] || FLIGHT_STATUS_COLORS.OnTime;
+
+            const pos = getFlightPosition(f);
+            const etaClock = getEtaClock(f, pos);
+            let planeMarker = null;
+            if (pos) {
+                planeMarker = L.marker([pos.lat, pos.lon], {
+                    icon: createAirplaneIcon(pos.bearing, palette.color)
+                });
+                planeMarker.on('tooltipopen', e => {
+                    const el = e.tooltip.getElement();
+                    if (el) { el.style.background = palette.color; el.style.border = `1.5px solid ${palette.tint}`; }
+                });
+                planeMarker.bindTooltip(
+                    `<div class="flight-tip-line1">✈️ ${f.flight} (${depName})</div>` +
+                    `<div class="flight-tip-line2">預計抵達 ${etaClock}</div>`, {
+                    permanent: true, direction: 'right', offset: [12, 0], className: 'flight-tooltip'
+                });
+                planeMarker.addTo(flightMarkersLayer);
+                planeMarker.bindPopup(`
+                    <div style="font-size:13px; line-height:1.65; min-width:220px;">
+                        <strong style="font-size:15px; color:${palette.color};">✈️ ${f.flight} ${f.airline}</strong><br>
+                        <b>航線：</b>${depName} ➔ ${arrName}<br>
+                        <b>狀態：</b>${f.status.text}<br>
+                        <b>高度：</b>${pos.altitudeM !== null ? pos.altitudeM + ' 公尺' : '—'}｜<b>速度：</b>${pos.speedKmh !== null ? pos.speedKmh + ' 公里／時' : '—'}<br>
+                        <b>距澎湖機場：</b>約 ${pos.distKm} 公里${pos.remainMins ? `（約 ${pos.remainMins} 分鐘）` : ''}<br>
+                        <b>預計抵達：</b>${etaClock}<br>
+                        <b>經緯度：</b>${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)}<br>
+                        <b>起飛 (表定／實際)：</b>${f.scheduledStart || '—'} / ${f.actualStart || '—'}<br>
+                        <b>到達 (表定／預估實際)：</b>${f.scheduledEnd || '—'} / ${f.actualEnd || '—'}
+                    </div>
+                `);
+            }
+
+            const posLine = pos
+                ? `<span style="grid-column: span 2; color:#0f766e; font-weight:700;">📡 即時位置：距澎湖機場約 ${pos.distKm} 公里（預計 ${etaClock} 抵達）</span>`
+                : '';
+
+            const card = document.createElement('div');
+            card.className = 'ship-card';
+            applyCardColor(card, palette);
+            card.innerHTML = `
+                <div class="ship-title">
+                    <span>✈️ <span style="background:${palette.color}; color:#ffffff; padding:1px 7px; border-radius:5px;">${f.flight}</span> ${f.airline}<span class="route-tag" style="background:${palette.tint}; color:${palette.color};">${depName} ➔ ${arrName}</span></span>
+                    <span class="badge-online" style="background:${sc.bg}; color:${sc.fg}; border-color:${sc.border || sc.bg};">${f.status.text}</span>
+                </div>
+                <div class="ship-meta">
+                    <span>表定起飛: ${f.scheduledStart || '—'}</span>
+                    <span>實際起飛: ${f.actualStart || '—'}</span>
+                    <span>表定到達: ${f.scheduledEnd || '—'}</span>
+                    <span>預估／實際到達: ${f.actualEnd || '—'}</span>
+                    ${posLine}
+                </div>
+            `;
+            card.onclick = () => {
+                if (planeMarker && pos) {
+                    showTab('monitor');
+                    map.flyTo([pos.lat, pos.lon], 10, { duration: 0.8 });
+                    planeMarker.openPopup();
+                } else {
+                    alert(`【${f.flight}】目前查無即時位置。`);
+                }
+            };
+            listEl.appendChild(card);
+        });
+    }
+
+    refreshAllData();
+    setInterval(() => {
+        if (nextRefreshAt && Date.now() >= nextRefreshAt) refreshAllData();
+        else updateStatusBar();
+    }, 1000);
+</script>
+<script src="lib/papaparse.min.js"></script>
+<script src="lib/chart.umd.js"></script>
+<script src="lib/chartjs-plugin-datalabels.min.js"></script>
+<script>
+if (typeof Chart !== 'undefined' && typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels);
+(() => {
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+const clean = s => (s === null || s === undefined) ? '' : String(s).trim();
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const pad2 = n => String(n).padStart(2, '0');
+const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+const MOBILE_BP = 820;
+const isMobile = () => window.innerWidth <= MOBILE_BP;
+function todayKey() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replace(/-/g, '/');
+}
+const keyToUTC = k => { const [y, m, d] = k.split('/').map(Number); return Date.UTC(y, m - 1, d); };
+const utcToKey = t => { const d = new Date(t); return `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())}`; };
+const addDays = (k, n) => utcToKey(keyToUTC(k) + n * 864e5);
+const weekdayOf = k => new Date(keyToUTC(k)).getUTCDay();
+const lsGet = (k, d = '') => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (_) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {  } };
+const HUB_ID = '1LOr4_3ugTHvTIi4UIfgVz2atVFh2K32zh7YKrrHxTwk';
+const HUB_GIDS = { tide: '1122135459', forecast: '776158339' };
+const CFG = { mapSheetId: HUB_ID, tideSheetId: HUB_ID, forecastDefault: '白沙' };
+const Home = { renderTide() {} }, Cal = { renderDetail() {} };
+let currentView = '';
+const tideDays = $('tideDays'), tideStatus = $('tideStatus'), tideMonth = $('tideMonth');
+let tideRows = [], tideAllRows = [], tideLoaded = false, tideLoading = false, dynamicThreshold = 3.75;
+const tideToMinutes = t => { if (!t || !String(t).includes(':')) return 0; const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+const minutesToTide = m => { m = Math.max(0, Math.min(1439, Math.round(m))); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+function calcTideTime(t1, h1, t2, h2, target) {
+  if (t1 >= t2) return null;
+  const amplitude = Math.abs(h2 - h1) / 2, mid = (h1 + h2) / 2;
+  if (!amplitude || target < Math.min(h1, h2) || target > Math.max(h1, h2)) return null;
+  let ratio = h1 <= h2 ? (mid - target) / amplitude : (target - mid) / amplitude;
+  ratio = Math.max(-1, Math.min(1, ratio));
+  return t1 + ((t2 - t1) / Math.PI) * Math.acos(ratio);
+}
+const normDate = s => { const m = String(s || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/); return m ? `${m[1]}/${m[2].padStart(2, '0')}/${m[3].padStart(2, '0')}` : ''; };
+function tideDayInfo(date) {
+  const rows = tideRows.filter(x => x.date === date);
+  const sunrise = rows.find(x => x.sunrise && x.sunrise !== '0')?.sunrise || '--:--';
+  const sunset = rows.find(x => x.sunset && x.sunset !== '0')?.sunset || '--:--';
+  const safety = (rows.find(x => x.safety && x.safety !== '0')?.safety || '').split(/\s+/).filter(Boolean);
+  const tides = rows.filter(x => x.time && Number.isFinite(x.height)).map(x => ({ m: tideToMinutes(x.time), h: x.height, t: x.time, type: x.height > 0 ? 'hi' : 'lo', label: x.height > 0 ? '滿潮' : '乾潮' })).sort((a, b) => a.m - b.m);
+  const calculated = [];
+  for (let i = 0; i < tides.length - 1; i++) {
+    const p1 = tides[i], p2 = tides[i + 1], rising = p1.h <= p2.h;
+    const time = calcTideTime(p1.m, p1.h, p2.m, p2.h, rising ? -dynamicThreshold : dynamicThreshold);
+    if (time !== null) calculated.push({ m: time, t: minutesToTide(time), type: rising ? 'mer' : 'sep', label: rising ? '緩慢合海' : '緩慢分海' });
+  }
+  return { hasData: rows.length > 0, sunrise, sunset, safety, points: [...tides, ...calculated].sort((a, b) => a.m - b.m) };
+}
+function renderTideMonth(month) {
+  if (typeof KbDesk !== 'undefined') KbDesk.render(month);
+  const dates = [...new Set(tideRows.filter(x => x.date.startsWith(month)).map(x => x.date))].sort();
+  tideDays.innerHTML = dates.map((date, index) => {
+    const info = tideDayInfo(date), keyPoints = info.points.filter(p => p.type === 'sep' || p.type === 'mer');
+    return `<details class="tide-card"${index === 0 ? ' open' : ''}><summary><span><strong>${esc(date)}</strong><span class="tide-brief">${keyPoints.map(p => `<span class="${p.type}">${p.label}${p.t}</span>`).join('') || '暫無分海資料'}</span></span><span class="chevron">⌄</span></summary><div class="tide-detail"><div class="sun-row">🌅 日出 ${esc(info.sunrise)} │ 🌇 日沒 ${esc(info.sunset)}</div><div class="tide-label">潮汐與分合海時間</div><div class="tide-grid">${info.points.map(p => `<div class="tide-item ${p.type}"><span>${p.label}</span><strong>${p.t}</strong></div>`).join('')}</div><div class="tide-label">安全通行參考</div><div class="safety-list">${info.safety.length ? info.safety.map(s => `<span>${esc(s)}</span>`).join('') : '<span>暫無資料</span>'}</div></div></details>`;
+  }).join('');
+  tideStatus.textContent = dates.length ? '' : '此月份暫無資料';
+}
+function loadTideData() {
+  if (tideLoaded || tideLoading) return;
+  if (!CFG.tideSheetId) { tideStatus.textContent = '沒有設定分海資料來源'; return; }
+  tideLoading = true;
+  tideStatus.textContent = '正在讀取奎壁山分海資料…';
+  parseTideCsv(`https://docs.google.com/spreadsheets/d/${CFG.tideSheetId}/gviz/tq?tqx=out:csv&gid=${HUB_GIDS.tide}&_=${Date.now()}`,
+    () => parseTideCsv(`https://docs.google.com/spreadsheets/d/${CFG.tideSheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('奎壁山摩西分海')}&_=${Date.now()}`,
+      () => { tideLoading = false; tideStatus.textContent = '分海資料讀取失敗，請重新整理後再試'; Home.renderTide(true); }));
+}
+function parseTideCsv(url, onFail) {
+  Papa.parse(url, {
+    download: true, header: false, skipEmptyLines: true,
+    complete: results => {
+      const rows = results.data.slice(1), threshold = Number(rows[0]?.[11]);
+      const parsed = rows.map(r => ({ date: normDate(r[0]), time: clean(r[1]), height: Number(r[2]), sunrise: clean(r[6]), sunset: clean(r[7]), safety: clean(r[10]) })).filter(x => x.date);
+      if (!parsed.length) { onFail(); return; }
+      tideLoading = false;
+      if (Number.isFinite(threshold) && threshold > 0) dynamicThreshold = threshold;
+      const now = new Date(), today = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+      tideAllRows = parsed;   /* 含今天以前，趨勢圖帶入前一天潮汐用 */
+      tideRows = parsed.filter(x => x.date >= today);
+      if (!tideRows.length) tideRows = parsed;
+      const months = [...new Set(tideRows.map(x => x.date.substring(0, 7)))].sort();
+      tideMonth.innerHTML = months.map(m => `<option value="${esc(m)}">${esc(m.replace('/', '年'))}月</option>`).join('');
+      tideLoaded = true;
+      if (months.length) renderTideMonth(months[0]); else tideStatus.textContent = '目前沒有可顯示的分海資料';
+      Home.renderTide();
+      Cal.renderDetail();
+    },
+    error: () => onFail()
+  });
+}
+tideMonth.addEventListener('change', () => renderTideMonth(tideMonth.value));
+
+var tideMode = 'split';
+function setTideMode(mode) {
+  tideMode = ['forecast', 'wx'].includes(mode) ? mode : 'split';
+  $('splitPane').hidden = tideMode !== 'split';
+  $('fcPane').hidden = tideMode !== 'forecast';
+  $('wxPane').hidden = tideMode !== 'wx';
+  if (tideMode === 'wx' && typeof Wx !== 'undefined') Wx.render();
+  document.querySelectorAll('#tideSeg [data-tm]').forEach(b => b.classList.toggle('active', b.dataset.tm === tideMode));
+  if (tideMode === 'forecast' && currentView === 'tide') onForecastShown();
+}
+$('tideSeg').addEventListener('click', e => { const b = e.target.closest('[data-tm]'); if (b) setTideMode(b.dataset.tm); });
+document.addEventListener('click', e => { const g = e.target.closest('[data-tm-go]'); if (g) setTimeout(() => setTideMode(g.dataset.tmGo), 0); });
+
+
+const FORECAST_SHEET = { key: '澎湖縣-未來30天潮汐預報', gid: HUB_GIDS.forecast };
+const FORECAST_REGIONS = ['馬公', '湖西', '白沙', '西嶼', '望安', '七美'];
+let forecastStore = {}, forecastChartInstance = null, forecastDateList = [], forecastLoaded = false, forecastRequest = 0;
+const getISODate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+let forecastRows = null; 
+async function fetchForecastRows() {
+  const urls = [
+    `https://docs.google.com/spreadsheets/d/${CFG.mapSheetId}/export?format=csv&gid=${FORECAST_SHEET.gid}&_=${Date.now()}`,
+    `https://docs.google.com/spreadsheets/d/${CFG.mapSheetId}/gviz/tq?tqx=out:csv&headers=1&sheet=${encodeURIComponent(FORECAST_SHEET.key)}&_=${Date.now()}`
+  ];
+  let lastErr;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const rows = Papa.parse((await res.text()).replace(/\r/g, ''), { skipEmptyLines: true }).data;
+      if (rows.length && String(rows[0][0] || '').includes('日期')) return rows;
+      throw new Error('資料格式不符');
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr;
+}
+async function loadForecastData(regionName) {
+  const loading = $('forecastLoading');
+  if (!FORECAST_REGIONS.includes(regionName)) { $('forecastList').innerHTML = '<div class="empty">沒有此區域的預報資料</div>'; return; }
+  const request = ++forecastRequest;
+  loading.style.display = 'inline';
+  try {
+    if (!forecastRows) forecastRows = await fetchForecastRows();
+    if (request !== forecastRequest) return;
+    forecastStore = {}; forecastDateList = [];
+    parseForecastRows(forecastRows, FORECAST_REGIONS.indexOf(regionName));
+    if (!forecastDateList.length) { $('forecastList').innerHTML = '<div class="empty">此區域目前沒有預報資料</div>'; return; }
+    setTimeout(() => scrollToForecastDate(getISODate(new Date())), 300);
+  } catch (e) {
+    if (request === forecastRequest) $('forecastList').innerHTML = '<div class="empty">預報讀取錯誤，請檢查網路後重新整理。</div>';
+  } finally {
+    if (request === forecastRequest) loading.style.display = 'none';
+  }
+}
+
+function parseForecastRows(rows, blockIndex) {
+  const starts = rows.map((r, i) => String(r[0] || '').trim() === '日期' ? i : -1).filter(i => i >= 0);
+  if (blockIndex < 0 || blockIndex >= starts.length) { renderForecastUI(); return; }
+  const block = rows.slice(starts[blockIndex] + 1, starts[blockIndex + 1] ?? rows.length);
+  let currentDay = '';
+  block.forEach(raw => {
+    const [dateCell, type, time, height, , , sep, mer] = raw.slice(0, 8).map(c => String(c ?? '').trim());
+    if (dateCell && dateCell.includes('/')) {
+      const [day, ...rest] = dateCell.split('\n').map(v => v.trim()).filter(Boolean);
+      currentDay = day;
+      if (!forecastStore[currentDay]) { forecastDateList.push(currentDay); forecastStore[currentDay] = { tides: [], tags: [], note: rest.join(' ') }; }
+    }
+    if (!currentDay) return;
+    const day = forecastStore[currentDay];
+    if (type && time.includes(':')) day.tides.push({ type, time, height: parseFloat(height) || 0 });
+    if (sep && sep.includes(':')) day.tags.push({ label: '緩慢分海', time: sep, type: 'sep' });
+    if (mer && mer.includes(':')) day.tags.push({ label: '緩慢合海', time: mer, type: 'mer' });
+  });
+  renderForecastUI();
+}
+function scrollToForecastDate(isoDate) {
+  const md = isoDate.slice(5).replace('-', '/'), mdLoose = md.replace(/^0/, '').replace('/0', '/');
+  const cards = [...document.querySelectorAll('#forecastList .f-card')];
+  const targetEl = cards.find(c => c.dataset.day.includes(md) || c.dataset.day.includes(mdLoose)) || cards[0];
+  const listPanel = $('forecastList');
+  if (!targetEl) return;
+  selectForecastCard(targetEl);
+  if (window.innerWidth <= 1024) targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  else listPanel.scrollTo({ top: targetEl.getBoundingClientRect().top - listPanel.getBoundingClientRect().top + listPanel.scrollTop - 5, behavior: 'smooth' });
+}
+function selectForecastCard(card) {
+  document.querySelectorAll('#forecastList .f-card.active').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+  updateForecastChart(card.dataset.day);
+}
+const hm2 = t => { if (isMobile()) return t; const m = String(t || '').match(/(\d{1,2})\s*[:：]\s*(\d{1,2})/); return m ? `${m[1].padStart(2, '0')}:${m[2].padStart(2, '0')}` : t; };   /* 電腦版：時間一律 HH:MM */
+function renderForecastUI() {
+  $('forecastList').innerHTML = forecastDateList.map(d => {
+    const data = forecastStore[d];
+    const tideHtml = `<div class="f-tide-container">${data.tides.map(t => `<div class="f-tide-row ${t.type === '滿潮' ? 'high' : 'low'}"><span>${esc(t.type)}</span><span style="font-weight:bold">${esc(hm2(t.time))}</span><span style="text-align:right;font-weight:bold;font-family:monospace">${t.height}</span><span>cm</span></div>`).join('')}</div>`;
+    const tagHtml = !data.tags.length ? '' : `<div class="f-status-tags">${data.tags.map(tag => `<span class="f-tag-pill ${tag.type === 'mer' ? 'f-bg-mer' : 'f-bg-sep'}">${tag.label} ${esc(hm2(tag.time))}</span>`).join('')}</div>`;
+    const note = data.note ? `<div class="f-card-note">${esc(data.note)}</div>` : '';
+    return `<div class="f-card" data-day="${esc(d)}"><div class="f-card-header">${esc(d)}</div>${note}${tagHtml}${tideHtml}</div>`;
+  }).join('');
+}
+$('forecastList').addEventListener('click', e => { const card = e.target.closest('.f-card'); if (card && !card.classList.contains('active')) selectForecastCard(card); });
+/* ---------- 電腦版潮位趨勢圖：曲線用與分海相同的潮汐模型逐點繪製，可左右拖曳、輸入時間查潮位 ---------- */
+const tdHHMM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+/* 相鄰滿乾潮之間用半週期餘弦（calcTideTime 的反函數），與分合海時間的計算相同 */
+function cosTideAt(ext, m) {
+  let i = ext.findIndex((p, k) => k < ext.length - 1 && m <= ext[k + 1].m);
+  if (i < 0) i = ext.length - 2;
+  const a = ext[i], b = ext[i + 1], span = (b.m - a.m) || 1;
+  return (a.h + b.h) / 2 + (a.h - b.h) / 2 * Math.cos(Math.PI * (m - a.m) / span);
+}
+function tdCurveAt(c, minute) {
+  const ext = c.$ext;
+  if (!ext || ext.length < 2 || minute < ext[0].m || minute > ext[ext.length - 1].m) return null;
+  if (minute < 0 || minute > 1440) return null;
+  const height = cosTideAt(ext, minute);
+  return { px: c.scales.x.getPixelForValue(minute), py: c.scales.y.getPixelForValue(height), height };
+}
+const tdToMin = t => { const m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
+/* 安全通行時段（綠色區塊）、日出／日沒（虛線） */
+const tdMarksPlugin = {
+  id: 'tideMarks',
+  beforeDatasetsDraw(c) {
+    const marks = c.$marks;
+    if (!marks) return;
+    const ctx = c.ctx, area = c.chartArea, xs = c.scales.x;
+    ctx.save();
+    ctx.font = 'bold 11px "Noto Sans TC","Microsoft JhengHei",sans-serif';
+    ctx.textBaseline = 'top';
+    marks.safe.forEach(([a, b]) => {
+      const x1 = xs.getPixelForValue(a), x2 = xs.getPixelForValue(b);
+      ctx.fillStyle = 'rgba(16,185,129,0.16)'; ctx.fillRect(x1, area.top, x2 - x1, area.bottom - area.top);
+      ctx.strokeStyle = 'rgba(16,185,129,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x1, area.top); ctx.lineTo(x1, area.bottom); ctx.moveTo(x2, area.top); ctx.lineTo(x2, area.bottom); ctx.stroke();
+    });
+    [[marks.sunrise, '日出', '#d97706'], [marks.sunset, '日沒', '#7c3aed']].forEach(([m, label, color]) => {
+      if (m == null) return;
+      const x = xs.getPixelForValue(m);
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(x, area.top); ctx.lineTo(x, area.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.textAlign = x > area.right - 70 ? 'right' : 'left';
+      ctx.fillText(`${label} ${tdHHMM(m)}`, x + (ctx.textAlign === 'right' ? -4 : 4), area.top + 4);
+    });
+    ctx.restore();
+  }
+};
+/* 拖曳或移動滑鼠時，曲線上顯示原本樣式的提示框（時間＋潮位） */
+const tdPickPlugin = {
+  id: 'tidePick',
+  afterEvent(c, args) {
+    const e = args.event, area = c.chartArea;
+    if (!['mousemove', 'mousedown', 'click', 'touchstart', 'touchmove'].includes(e.type)) return;
+    if (e.x < area.left || e.x > area.right || e.y < area.top || e.y > area.bottom) return;
+    const minute = Math.max(0, Math.min(1440, Math.round(c.scales.x.getValueForPixel(e.x))));
+    if (!tdCurveAt(c, minute)) return;
+    c.$pick = minute; args.changed = true;
+  },
+  afterDraw(c) {
+    if (c.$pick == null) return;
+    const r = tdCurveAt(c, c.$pick);
+    if (!r) return;
+    const ctx = c.ctx, area = c.chartArea, color = '#900';
+    ctx.save();
+    ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(r.px, r.py, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const title = tdHHMM(c.$pick), body = `潮位: ${Math.round(r.height)}`;
+    ctx.font = 'bold 12px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    const tw = ctx.measureText(title).width;
+    ctx.font = '12px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    const bw = ctx.measureText(body).width + 16;
+    const w = Math.max(tw, bw) + 12, hgt = 44;
+    let bx = r.px + 12; if (bx + w > area.right) bx = r.px - 12 - w;
+    let by = r.py - hgt / 2; by = Math.max(area.top, Math.min(area.bottom - hgt, by));
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, w, hgt, 6) : ctx.rect(bx, by, w, hgt); ctx.fill();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px "Helvetica Neue",Helvetica,Arial,sans-serif'; ctx.fillText(title, bx + 6, by + 12);
+    ctx.fillStyle = color; ctx.fillRect(bx + 6, by + 25, 10, 10); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(bx + 6, by + 25, 10, 10);
+    ctx.fillStyle = '#fff'; ctx.font = '12px "Helvetica Neue",Helvetica,Arial,sans-serif'; ctx.fillText(body, bx + 22, by + 31);
+    ctx.restore();
+  }
+};
+/* 09:40、9:40、0940 都可以 */
+function tdParseHM(text) {
+  const m = String(text || '').trim().replace(/[：.]/g, ':').match(/^(\d{1,2}):?(\d{2})$/);
+  if (!m) return null;
+  const h = +m[1], mi = +m[2];
+  return h < 24 && mi < 60 ? h * 60 + mi : null;
+}
+function makeTideChart(k, canvasId, titleId, infoId) {
+  let chart = null;
+  const input = $(`${k}Time`), msg = $(`${k}TimeMsg`);
+  function jump() {
+    msg.textContent = '';
+    const minute = tdParseHM(input.value);
+    if (minute === null) { if (input.value.trim()) msg.textContent = '請輸入 24 小時制時間，例如 09:40'; return; }
+    if (!chart) return;
+    const ext = chart.$ext || [];
+    if (!tdCurveAt(chart, minute)) { msg.textContent = ext.length ? `此時間不在曲線範圍（${tdHHMM(Math.max(0, ext[0].m))}–${tdHHMM(Math.min(1439, ext[ext.length - 1].m))}）` : '這天沒有潮汐資料'; return; }
+    chart.$pick = minute; chart.draw();
+  }
+  $(`${k}TimeGo`).addEventListener('click', jump);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') jump(); });
+  function draw(data, titleText, adj) {
+    $(titleId).innerText = `${titleText} 潮位趨勢圖`;
+    msg.textContent = '';
+    if (typeof Chart === 'undefined' || isMobile()) return;
+    if (chart) chart.destroy();
+    const points = data.tides.map(t => ({ x: tdToMin(t.time), y: t.height, tideType: t.type })).filter(p => p.x != null).sort((a, b) => a.x - b.x);
+    /* 帶入前一天最後一個、後一天第一個滿乾潮，曲線補滿 0～24 時（分合海時間不受影響） */
+    const near = list => (list || []).map(t => ({ m: tdToMin(t.time), h: t.height })).filter(p => p.m != null).sort((a, b) => a.m - b.m);
+    const prev = near(adj && adj.prev), next = near(adj && adj.next);
+    const today = points.map(p => ({ m: p.x, h: p.y }));
+    /* 沒有前一天／後一天資料（例如最後一天 12/31）：曲線只畫到當天第一筆／最後一筆資料 */
+    const head = prev.length ? [{ m: prev[prev.length - 1].m - 1440, h: prev[prev.length - 1].h }] : [];
+    const tail = next.length ? [{ m: next[0].m + 1440, h: next[0].h }] : [];
+    const ext = today.length ? [...head, ...today, ...tail] : [], curve = [];
+    if (ext.length >= 2) {
+      const from = Math.max(0, ext[0].m), to = Math.min(1440, ext[ext.length - 1].m);
+      for (let m = Math.ceil(from); m < to; m += 5) curve.push({ x: m, y: Math.round(cosTideAt(ext, m) * 10) / 10 });
+      curve.push({ x: to, y: Math.round(cosTideAt(ext, to) * 10) / 10 });
+    }
+    chart = new Chart($(canvasId).getContext('2d'), {
+      type: 'line',
+      data: { datasets: [
+        { label: '潮位', data: curve, borderColor: '#900', backgroundColor: 'rgba(153,0,0,0.1)', fill: true, tension: 0, pointRadius: 0, pointHoverRadius: 0, borderWidth: 3, datalabels: { display: false } },
+        { label: '滿乾潮', data: points, showLine: false, fill: false, pointRadius: 8, pointHoverRadius: 10, pointBackgroundColor: points.map(p => p.tideType === '滿潮' ? '#d32f2f' : '#1976d2'), borderColor: '#900' }
+      ] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        events: ['mousemove', 'mouseout', 'mousedown', 'click', 'touchstart', 'touchmove'],
+        scales: { x: { type: 'linear', min: 0, max: 1440, ticks: { stepSize: 120, callback: v => `${Math.floor(v / 60)}:00` }, title: { display: true, text: '時間' } }, y: { title: { display: true, text: '潮位 (cm)' } } },
+        plugins: {
+          legend: { display: false },
+          datalabels: { align: 'top', offset: 5, color: '#334155', font: { weight: 'bold', size: 12 }, formatter: v => `${v.tideType}\n${v.y}` },
+          tooltip: { enabled: false }
+        }
+      },
+      plugins: [tdMarksPlugin, tdPickPlugin]
+    });
+    chart.$ext = ext;
+    /* 奎壁山分海：右下角安全通行、日出、日沒 */
+    const info = infoId ? $(infoId) : null;
+    const hasKb = Boolean(data.safetyList || data.sunrise);
+    if (info) {
+      info.hidden = !hasKb;
+      if (hasKb) info.innerHTML = `<div class="safe"><b>🟩 安全通行</b><span>${(data.safetyList || []).length ? data.safetyList.map(x => esc(x.replace(/-/g, '–'))).join('、') : '暫無資料'}</span></div><div class="rise"><b>🌅 日出</b><span>${esc(data.sunrise || '--:--')}</span></div><div class="set"><b>🌇 日沒</b><span>${esc(data.sunset || '--:--')}</span></div>`;
+    }
+    chart.$marks = hasKb ? {
+      safe: (data.safetyList || []).map(x => x.split(/[-~～–]/).map(tdToMin)).filter(([a, b]) => a != null && b != null && b > a),
+      sunrise: tdToMin(data.sunrise), sunset: tdToMin(data.sunset)
+    } : null;
+    chart.draw();
+    if (tdParseHM(input.value) !== null) jump();   /* 換日期時沿用輸入的時間 */
+  }
+  return { draw, resize() { if (chart) setTimeout(() => chart.resize(), 50); } };
+}
+const fcChart = makeTideChart('fc', 'forecastChart', 'forecastChartTitle', null);
+function updateForecastChart(date) {
+  const data = forecastStore[date];
+  if (!data) return;
+  const i = forecastDateList.indexOf(date), pv = forecastStore[forecastDateList[i - 1]], nx = forecastStore[forecastDateList[i + 1]];
+  fcChart.draw(data, date, { prev: pv && pv.tides, next: nx && nx.tides });
+}
+/* 電腦版奎壁山分海：日期清單＋潮位趨勢圖 */
+const KbDesk = (() => {
+  const list = $('kbList'), chart = makeTideChart('kb', 'kbChart', 'kbChartTitle', 'kbInfo');
+  const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+  const weekOf = date => { const d = new Date(date.replace(/\//g, '-') + 'T00:00:00'); return Number.isNaN(d.getTime()) ? '' : `（${WEEK[d.getDay()]}）`; };
+  let store = {};
+  const shiftDay = (date, n) => { const d = new Date(date.replace(/\//g, '-') + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`; };
+  const dayTides = date => tideAllRows.filter(x => x.date === date && x.time && Number.isFinite(x.height)).map(x => ({ time: x.time, height: x.height }));
+  function render(month) {
+    store = {};
+    const dates = [...new Set(tideRows.filter(x => x.date.startsWith(month)).map(x => x.date))].sort();
+    dates.forEach(date => {
+      const info = tideDayInfo(date);
+      store[date] = {
+        title: `${date}${weekOf(date)}`, sunrise: info.sunrise, sunset: info.sunset, safetyList: info.safety,
+        tags: info.points.filter(p => p.type === 'sep' || p.type === 'mer'),
+        tides: info.points.filter(p => p.type === 'hi' || p.type === 'lo').map(p => ({ type: p.label, time: p.t, height: p.h }))
+      };
+    });
+    list.innerHTML = dates.length ? dates.map(d => {
+      const v = store[d];
+      const tags = v.tags.length ? `<div class="f-status-tags">${v.tags.map(p => `<span class="f-tag-pill ${p.type === 'mer' ? 'f-bg-mer' : 'f-bg-sep'}">${p.label} ${esc(p.t)}</span>`).join('')}</div>` : '';
+      const tides = `<div class="f-tide-container">${v.tides.map(t => `<div class="f-tide-row ${t.type === '滿潮' ? 'high' : 'low'}"><span>${esc(t.type)}</span><span style="font-weight:bold">${esc(t.time)}</span><span style="text-align:right;font-weight:bold;font-family:monospace">${t.height}</span><span>cm</span></div>`).join('')}${v.safetyList.length ? `<div class="f-card-safety">安全通行參考：${esc(v.safetyList.join('、'))}</div>` : ''}</div>`;
+      return `<div class="f-card" data-day="${esc(d)}"><div class="f-card-header">${esc(v.title)}</div><div class="f-card-note">🌅 日出 ${esc(v.sunrise)} │ 🌇 日沒 ${esc(v.sunset)}</div>${tags}${tides}</div>`;
+    }).join('') : '<div class="empty">此月份暫無分海資料</div>';
+    const now = new Date(), today = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+    const cards = [...list.querySelectorAll('.f-card')];
+    const target = cards.find(c => c.dataset.day === today) || cards[0];
+    if (target) { select(target); list.scrollTo({ top: target.offsetTop - list.offsetTop - 5 }); }
+  }
+  function select(card) {
+    list.querySelectorAll('.f-card.active').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    const v = store[card.dataset.day];
+    if (v) chart.draw(v, v.title, { prev: dayTides(shiftDay(card.dataset.day, -1)), next: dayTides(shiftDay(card.dataset.day, 1)) });
+  }
+  list.addEventListener('click', e => { const card = e.target.closest('.f-card'); if (card && !card.classList.contains('active')) select(card); });
+  return { render, resize: chart.resize };
+})();
+$('forecastRegion').onchange = e => loadForecastData(e.target.value);
+function onForecastShown() {
+  if (!forecastLoaded) { forecastLoaded = true; loadForecastData($('forecastRegion').value); }
+  else fcChart.resize();
+}
+
+
+const Wx = (() => {
+  
+  const AREAS = {
+    '馬公市': { lat: 23.5667, lng: 119.5833, sea: [23.55, 119.54] },
+    '湖西鄉': { lat: 23.5833, lng: 119.6600, sea: [23.60, 119.72] },
+    '白沙鄉': { lat: 23.6660, lng: 119.5860, sea: [23.72, 119.60] },
+    '西嶼鄉': { lat: 23.6020, lng: 119.5078, sea: [23.60, 119.45] },
+    '望安鄉': { lat: 23.3697, lng: 119.5039, sea: [23.37, 119.46] },
+    '七美鄉': { lat: 23.2017, lng: 119.4290, sea: [23.20, 119.39] }
+  };
+  let area = AREAS[lsGet('xb.wxArea')] ? lsGet('xb.wxArea') : '馬公市';
+  const FC = a => `https://api.open-meteo.com/v1/forecast?latitude=${a.lat}&longitude=${a.lng}&timezone=Asia%2FTaipei&wind_speed_unit=ms&forecast_days=7`
+    + '&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m'
+    + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant';
+  const MA = a => `https://marine-api.open-meteo.com/v1/marine?latitude=${a.sea[0]}&longitude=${a.sea[1]}&timezone=Asia%2FTaipei&forecast_days=7&hourly=wave_height&daily=wave_height_max`;
+  let fc = null, ma = null, loading = null, error = '';
+  const DIRS = ['北', '東北', '東', '東南', '南', '西南', '西', '西北'];
+  const dirOf = d => DIRS[Math.round((((Number(d) || 0) % 360) + 360) % 360 / 45) % 8];
+  const LIM = [0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7];
+  const bft = ms => { const i = LIM.findIndex(x => ms < x); return i < 0 ? 12 : i; };
+  const ICON = c => c === 0 ? ['☀️', '晴'] : c <= 2 ? ['🌤️', '晴時多雲'] : c === 3 ? ['☁️', '陰'] : c <= 48 ? ['🌫️', '有霧'] : c <= 57 ? ['🌦️', '毛毛雨'] : c <= 67 ? ['🌧️', '雨'] : c <= 77 ? ['🌨️', '雪'] : c <= 82 ? ['🌦️', '陣雨'] : ['⛈️', '雷雨'];
+  const waveTxt = h => h == null ? '—' : h < 0.5 ? '平穩' : h < 1.25 ? '小浪' : h < 2.5 ? '中浪' : h < 4 ? '大浪' : '巨浪';
+  function risk(windMs, gustMs, wave) {
+    const w = bft(windMs), g = bft(gustMs);
+    if (w >= 6 || g >= 8 || (wave ?? 0) >= 2.5) return ['bad', '風浪大・不宜出海'];
+    if (w >= 5 || g >= 7 || (wave ?? 0) >= 1.25) return ['warn', '注意風浪'];
+    return ['ok', '適合出海'];
+  }
+  async function getJSON(url) { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }
+  let req = 0;
+  function load(force = false) {
+    if (loading && !force) return loading;
+    const my = ++req, a = AREAS[area];
+    loading = (async () => {
+      const [x, y] = await Promise.allSettled([getJSON(FC(a)), getJSON(MA(a))]);
+      if (my !== req) return;
+      if (x.status === 'fulfilled') { fc = x.value; error = ''; } else { fc = null; error = '天氣資料讀取失敗，請稍後再試'; }
+      ma = y.status === 'fulfilled' ? y.value : null;
+      render(); renderHome();
+    })();
+    return loading;
+  }
+  function setArea(v) { if (!AREAS[v]) return; area = v; lsSet('xb.wxArea', v); fc = null; ma = null; render(); renderHome(); load(true); }
+  const picker = () => `<div class="tide-toolbar"><label for="wxArea">區域（鄉市）</label><select id="wxArea">${Object.keys(AREAS).map(k => `<option${k === area ? ' selected' : ''}>${k}</option>`).join('')}</select></div>`;
+  const nowIdx = () => { if (!fc) return 0; const k = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false }).format(new Date()).replace(' ', 'T').slice(0, 13); const i = fc.hourly.time.findIndex(t => t.slice(0, 13) === k); return i < 0 ? 0 : i; };
+  const waveAt = t => { if (!ma?.hourly) return null; const i = ma.hourly.time.indexOf(t); return i < 0 ? null : ma.hourly.wave_height[i]; };
+  function nowHtml() {
+    const H = fc.hourly, i = nowIdx(), [ic, tx] = ICON(H.weather_code[i]);
+    const wave = waveAt(H.time[i]), [rc, rt] = risk(H.wind_speed_10m[i], H.wind_gusts_10m[i], wave);
+    return `<div class="wx-now"><span class="ic">${ic}</span><b>現在 ${Math.round(H.temperature_2m[i])}°C・${tx}<span class="wx-badge ${rc}">${rt}</span></b>
+      <p>💨 ${dirOf(H.wind_direction_10m[i])}風 ${bft(H.wind_speed_10m[i])} 級（${H.wind_speed_10m[i].toFixed(1)} m/s）・陣風 ${bft(H.wind_gusts_10m[i])} 級　🌊 浪高 ${wave == null ? '—' : `${wave.toFixed(1)} m（${waveTxt(wave)}）`}　☔ 降雨 ${H.precipitation_probability[i] ?? '—'}%</p></div>`;
+  }
+  function render() {
+    const box = $('wxPane');
+    if (!box) return;
+    if (!fc) { box.innerHTML = `${picker()}<div class="xb-empty">${error ? esc(error) : `正在讀取${area}風浪天氣…`}</div>`; return; }
+    const H = fc.hourly, D = fc.daily, i0 = nowIdx();
+    const hours = [];
+    for (let i = i0; i < Math.min(H.time.length, i0 + 25); i += 3) {
+      const wave = waveAt(H.time[i]);
+      hours.push(`<div class="wx-h"><b>${H.time[i].slice(11, 16)}</b><i>${ICON(H.weather_code[i])[0]}</i>${Math.round(H.temperature_2m[i])}°<br>${dirOf(H.wind_direction_10m[i])}風 ${bft(H.wind_speed_10m[i])} 級<br>陣風 ${bft(H.wind_gusts_10m[i])} 級<br>浪 ${wave == null ? '—' : wave.toFixed(1) + 'm'}</div>`);
+    }
+    const days = D.time.map((t, i) => {
+      const k = t.replace(/-/g, '/'), [ic, tx] = ICON(D.weather_code[i]);
+      const wave = ma?.daily?.wave_height_max?.[i] ?? null, [rc, rt] = risk(D.wind_speed_10m_max[i], D.wind_gusts_10m_max[i], wave);
+      return `<div class="wx-day"><span class="d"><b>${i === 0 ? '今天' : i === 1 ? '明天' : `${Number(k.slice(5, 7))}/${Number(k.slice(8))}`}</b><small>星期${WEEK[weekdayOf(k)]}</small></span><span class="ic">${ic}</span>
+        <span class="m">${tx}・${Math.round(D.temperature_2m_min[i])}～${Math.round(D.temperature_2m_max[i])}°C・☔ ${D.precipitation_probability_max[i] ?? '—'}%<br>💨 ${dirOf(D.wind_direction_10m_dominant[i])}風 最大 ${bft(D.wind_speed_10m_max[i])} 級・陣風 ${bft(D.wind_gusts_10m_max[i])} 級　🌊 浪高 ${wave == null ? '—' : `${wave.toFixed(1)} m（${waveTxt(wave)}）`}</span>
+        <span class="wx-badge ${rc}">${rt}</span></div>`;
+    }).join('');
+    box.innerHTML = `${picker()}${nowHtml()}<div class="tide-label">${area}・未來 24 小時（每 3 小時）</div><div class="wx-hours">${hours.join('')}</div><div class="tide-label">未來 7 天</div><div class="wx-days">${days}</div>
+      <p class="wx-src">資料：Open-Meteo 公開氣象模式（${area}及外海），僅供參考；出海請以中央氣象署與港務單位公告為準。<button type="button" class="ev-link-btn" id="wxReload">🔄 重新整理</button></p>`;
+  }
+  function renderHome() {
+    const box = $('homeWx');
+    if (!box) return;
+    if (!fc) { box.innerHTML = `<span class="h-muted">${error ? esc(error) : '正在讀取風浪天氣…'}</span>`; return; }
+    box.className = '';
+    box.innerHTML = `<div class="h-sub" style="margin-top:0">${area}</div>` + nowHtml().replace('class="wx-now"', 'class="wx-now" style="box-shadow:none;border:0;padding:0;margin:0"');
+  }
+  document.addEventListener('click', e => { if (e.target.closest('#wxReload')) load(true); });
+  document.addEventListener('change', e => { if (e.target.id === 'wxArea') setArea(e.target.value); });
+  return { load, render, renderHome, get loaded() { return Boolean(fc); } };
+})();
+Wx.load();
+window.onTideTabShown = () => {
+  currentView = 'tide';
+  loadTideData();
+  if (tideMode === 'forecast') onForecastShown();
+  if (tideMode === 'wx') Wx.render();
+  KbDesk.resize();
+};
+window.onTideTabHidden = () => { currentView = ''; };
+})();
+</script>
+
+<script>
+    function showTab(name) {
+        const isMonitor = name !== 'tide';
+        document.getElementById('tab-monitor').hidden = !isMonitor;
+        document.getElementById('tab-tide').hidden = isMonitor;
+        document.querySelectorAll('#bottom-nav [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === (isMonitor ? 'monitor' : 'tide')));
+        if (isMonitor) {
+            if (window.onTideTabHidden) window.onTideTabHidden();
+            setTimeout(() => map.invalidateSize(), 50);
+        } else if (window.onTideTabShown) {
+            window.onTideTabShown();
+        }
+    }
+    document.getElementById('bottom-nav').addEventListener('click', e => {
+        const b = e.target.closest('[data-tab]');
+        if (b) showTab(b.dataset.tab);
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "appId": "io.github.bearbabybaby_ai.bearbaoinfo",
+  "appName": "熊寶小資訊",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "disable"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
