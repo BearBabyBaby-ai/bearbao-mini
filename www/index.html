@@ -1444,13 +1444,14 @@
         if (lower.includes('cancel') || lower.includes('取消')) return { text: '取消航班 Cancelled', className: 'Cancelled', history: isOlderThan(scheduledEnd) };
         if (lower.includes('delay') || lower.includes('延誤')) return { text: '延誤 Delayed', className: 'Delayed', history: isOlderThan(end) };
         if (lower.includes('on time') || lower.includes('準時') || !raw) {
-            const startDiff = minutesFromNow(actualStart || scheduledStart);
+            // 只有真正的實際起飛時間才算已起飛；沒有實際起飛、或實際起飛時間還沒到，一律是待起飛
+            const startDiff = minutesFromNow(actualStart);
+            if (startDiff === null || startDiff > 0) return { text: '待起飛 Waiting', className: 'Waiting', history: isOlderThan(end) };
             const endDiff = minutesFromNow(end);
-            if (startDiff !== null && endDiff !== null) {
-                if (startDiff > 0 && endDiff > 30) return { text: '待起飛 Waiting', className: 'Waiting', history: false };
-                if (startDiff < 0 && endDiff >= 11) return { text: '航行中 OnFlying', className: 'OnFlying', history: false };
-                if (startDiff < 0 && endDiff >= 6) return { text: '即將抵達 Comming Soon', className: 'CommingSoon', history: false };
-                if (startDiff < 0 && endDiff >= 0) return { text: '即將降落 Landing', className: 'Landing', history: false };
+            if (endDiff !== null) {
+                if (endDiff >= 11) return { text: '航行中 OnFlying', className: 'OnFlying', history: false };
+                if (endDiff >= 6) return { text: '即將抵達 Comming Soon', className: 'CommingSoon', history: false };
+                if (endDiff >= 0) return { text: '即將降落 Landing', className: 'Landing', history: false };
             }
         }
         return { text: raw || '準時 On Time', className: 'OnTime', history: isOlderThan(end) };
@@ -1908,15 +1909,16 @@
     // 實際空中飛行時間（分鐘）：表定時間含滑行與緩衝，比實際飛行長，直接用會讓位置落後
     const AIRBORNE_MINUTES = { TSA: 48, RMQ: 28, CYI: 22, TNN: 22, KHH: 27, CMJ: 15 };
 
-    // 起飛：實際起飛優先。抵達：預估抵達有更新（不同於表定）就用預估，否則用起飛時間＋實際飛行時間
+    // 起飛：只用實際起飛（沒有就是還沒起飛，不拿表定起飛代替）
+    // 抵達：預估抵達有更新（不同於表定）就用預估，否則用實際起飛＋實際飛行時間；
+    //       預估抵達若比實際起飛後最短可能抵達的時間還早（延誤前算的舊預估），改用實際起飛＋實際飛行時間
     function flightTimes(f) {
-        const sDep = parseClockMinutes(f.scheduledStart), aDep = parseClockMinutes(f.actualStart);
+        const dep = parseClockMinutes(f.actualStart);
         const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
-        const dep = aDep ?? (f.knownNotDeparted ? null : sDep);
         if (dep === null) return { dep: null, arr: eArr ?? sArr };
         const airborne = AIRBORNE_MINUTES[f.DepartureAirportID] || 30;
         const estimateUpdated = eArr !== null && (sArr === null || eArr !== sArr);
-        const arr = (estimateUpdated && eArr > dep) ? eArr : dep + airborne;
+        const arr = (estimateUpdated && eArr >= dep + airborne * 0.7) ? eArr : dep + airborne;
         return { dep, arr };
     }
 
@@ -1924,7 +1926,7 @@
 
     function estimateInFlightPosition(f) {
         if (!IN_FLIGHT_CLASSES.has(f.status.className) || !AIRPORTS[f.DepartureAirportID]) return null;
-        if (!f.actualStart && f.knownNotDeparted) return null;   // 起飛機場顯示尚未起飛，不推算
+        if (!f.actualStart) return null;   // 沒有實際起飛時間＝還沒起飛，不推算
         const { dep, arr } = flightTimes(f);
         if (dep === null || arr === null || arr <= dep) return null;
         const now = taipeiNowMinutes();
@@ -2013,7 +2015,7 @@
             const liveRec = liveAircraftByCallsign.get(f.flight);
             let status = f.status;
             if (pos && pos.isLive && status.className === 'Waiting') status = { text: '航行中 OnFlying', className: 'OnFlying' };
-            else if (!pos && liveRec && liveRec.onGround && ['OnFlying', 'CommingSoon', 'Landing', 'OnTime'].includes(status.className) && minutesFromNow(f.scheduledEnd) > -30) status = { text: '待起飛 Waiting', className: 'Waiting' };
+            else if (!pos && liveRec && liveRec.onGround && getDistanceMeters(liveRec.lat, liveRec.lon, AIRPORTS.MZG.lat, AIRPORTS.MZG.lon) > 10000 && ['OnFlying', 'CommingSoon', 'Landing', 'OnTime'].includes(status.className) && minutesFromNow(f.scheduledEnd) > -30) status = { text: '待起飛 Waiting', className: 'Waiting' };
             const sc = FLIGHT_STATUS_COLORS[status.className] || FLIGHT_STATUS_COLORS.OnTime;
             const etaClock = getEtaClock(f, pos);
             let planeMarker = null;
@@ -2077,7 +2079,7 @@
                     map.flyTo([pos.lat, pos.lon], 10, { duration: 0.8 });
                     planeMarker.openPopup();
                 } else {
-                    alert(`【${f.flight}】目前不在空中，查無位置。`);
+                    alert(status.className === 'OnFlying' ? `【${f.flight}】目前查無即時位置。` : `【${f.flight}】目前不在空中，查無位置。`);
                 }
             };
             listEl.appendChild(card);
@@ -2093,15 +2095,44 @@
         return m ? `${Number(m[1])}:${m[2]}` : '';
     }
 
+    function taipeiDateKey() {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    }
+
+    // 起飛機場的出發資訊：只有備註是已飛／出發才算已離開（準時、登機、延誤、預計…都是還沒走）
+    // 起飛時間只採用高雄、台南：這兩個機場的實際起飛和澎湖機場記錄的起飛時間一致；
+    // 松山、清泉崗的實際起飛是離開停機位或登機的時間（松山甚至起飛前就先填表定時間），比真正起飛早 10～25 分鐘，不能當起飛時間
+    const DEPARTED_REMARK = /已飛|已出發|已起飛|^出發|^起飛|departed|airborne/i;
+    const BOARD_TAKEOFF_AIRPORTS = new Set(['KHH', 'TNN']);
+
+    function buildBoardEntry(x, date, code) {
+        const remark = normalizeText(x.DepartureRemark);
+        const departed = DEPARTED_REMARK.test(remark);
+        const takeoff = (departed && BOARD_TAKEOFF_AIRPORTS.has(code)) ? boardClock(x.ActualDepartureTime) : '';
+        return { takeoff, departed, remark, date };
+    }
+
+    // 時間已經到了（容許 2 分鐘誤差）才是真的實際起飛；還沒到的時間不算
+    function isReachedClock(value) {
+        const diff = minutesFromNow(value);
+        return diff !== null && diff <= 2;
+    }
+
     async function fetchDepartureBoards() {
         try {
             const token = await getTDXAccessToken();
             const codes = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
-            const board = new Map();
+            const today = taipeiDateKey();
+            // 某個機場這次讀取失敗時，保留它上一次讀到的今天資料，不會因此退回表定時間
+            const board = new Map([...departureBoard].filter(([, v]) => v.date === today));
             for (const code of codes) {
                 try {
                     const url = `https://tdx.transportdata.tw/api/basic/v2/Air/FIDS/Airport/Departure/${code}?%24filter=ArrivalAirportID%20eq%20%27MZG%27&%24format=JSON`;
-                    const res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
+                    let res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
+                    if (res.status === 429) {
+                        await new Promise(r => setTimeout(r, 1500));
+                        res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
+                    }
                     if (!res.ok) continue;
                     const list = await res.json();
                     (Array.isArray(list) ? list : (list.FIDSDepartures || list.Departures || [])).forEach(x => {
@@ -2109,32 +2140,37 @@
                         const prefix = AIRLINE_IATA_TO_ICAO[airline] || airline;
                         const digits = String(x.FlightNumber || '').replace(/\D/g, '');
                         if (!prefix || !digits) return;
-                        board.set(prefix + digits, {
-                            actual: boardClock(x.ActualDepartureTime),
-                            estimated: boardClock(x.EstimatedDepartureTime),
-                            remark: String(x.DepartureRemark || '')
-                        });
+                        const date = String(x.ScheduleDepartureTime || x.FlightDate || '').slice(0, 10);
+                        if (date && date !== today) return;
+                        board.set(prefix + digits, buildBoardEntry(x, today, code));
                     });
                 } catch (_) { }
                 await new Promise(r => setTimeout(r, 300));
             }
-            if (board.size) departureBoard = board;
+            departureBoard = board;
         } catch (_) { }
         applyDepartureBoards();
         renderFlights();
     }
 
-    // 澎湖機場資料沒有實際起飛時間時，用起飛機場的實際起飛時間補上，並重新判斷狀態
+    // 實際起飛：澎湖機場記錄的起飛時間優先，沒有時用高雄、台南的起飛時間補上；時間已到才算，並重新判斷狀態
+    // 起飛機場顯示已離開、但還沒有真正起飛時間：只標示航行中，不推算位置（有即時位置才畫）
     function applyDepartureBoards() {
         allLiveFlights.forEach(f => {
             const b = departureBoard.get(f.flight);
-            if (!f.sheetActualStart && f.sheetActualStart !== '') f.sheetActualStart = f.actualStart || '';
-            f.actualStart = f.sheetActualStart || (b && b.actual) || '';
-            f.knownNotDeparted = !f.actualStart && Boolean(b) && !b.actual;
+            if (f.sheetActualStart === undefined) f.sheetActualStart = f.actualStart || '';
+            const sheetActual = isReachedClock(f.sheetActualStart) ? f.sheetActualStart : '';
+            const boardTakeoff = (b && b.takeoff && isReachedClock(b.takeoff)) ? b.takeoff : '';
+            f.actualStart = sheetActual || boardTakeoff;
             const times = flightTimes(f);
             const endForStatus = (f.actualStart && times.arr !== null) ? formatClock(times.arr) : f.actualEnd;
             f.status = arrivalStatus(f.remark, f.scheduledStart, f.actualStart, f.scheduledEnd, endForStatus);
-            if (f.knownNotDeparted && ['OnFlying', 'CommingSoon', 'Landing', 'OnTime'].includes(f.status.className)) f.status = { text: '待起飛 Waiting', className: 'Waiting', history: false };
+            if (!f.actualStart && b && b.departed && f.status.className === 'Waiting') {
+                const raw = normalizeText(f.remark);
+                f.status = minutesFromNow(f.actualEnd || f.scheduledEnd) >= 0
+                    ? { text: '航行中 OnFlying', className: 'OnFlying', history: false }
+                    : { text: raw || '準時 On Time', className: 'OnTime', history: f.status.history };
+            }
         });
     }
 
