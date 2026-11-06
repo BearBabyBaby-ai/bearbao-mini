@@ -347,6 +347,8 @@
         #bottom-nav button .ic { font-size: 20px; line-height: 1; }
         #bottom-nav button.active { color: #0369a1; background: #e0f2fe; }
         @media (max-width: 820px) {
+            .config-box .control-row { display: none !important; }   /* 手機端：四個下拉選單不顯示，維持預設值 */
+            .config-box .status-bar { margin-top: 0; padding-top: 0; border-top: 0; }
             #tab-monitor { flex-direction: column-reverse; }
             #map { flex: 0 0 46%; height: auto; }
             #sidebar { width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; border-left: 0; border-top: 1px solid #cbd5e1; box-shadow: none; -webkit-overflow-scrolling: touch; }
@@ -1032,7 +1034,7 @@
                     <b>緯度：</b>${apt.lat.toFixed(6)} | <b>經度：</b>${apt.lon.toFixed(6)}
                 </div>
             `).on('click', () => {
-                if (apt.code === 'MZG') return;
+                if (apt.code === 'MZG' || PHONE_MQ.matches) return;   // 手機端沒有出發機場選單可改回，點機場不切換篩選
                 document.getElementById('select-airport').value = apt.code;
                 onAirportFilterChange();
             }).addTo(airportLayer);
