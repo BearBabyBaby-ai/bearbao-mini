@@ -1481,11 +1481,27 @@
         return m ? m[0] : '';
     }
 
+    // 澎湖航空站網站「國內線抵達」：實際起飛、預估／實際到達即時更新（APP 直接讀；網頁版受跨站限制讀不到時改用表格資料）
+    const MKPORT_ARRIVAL_URL = 'https://www.mkport.gov.tw/Flight/moreArrival.aspx?MenuID=5F8C5942FDC5D1C4';
+
+    async function loadMkportArrivalRows() {
+        const res = await withTimeout(fetch(`${MKPORT_ARRIVAL_URL}&t=${Date.now()}`, { cache: 'no-store' }), 12000);
+        if (!res.ok) throw new Error(String(res.status));
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const rows = [...doc.querySelectorAll('tr')]
+            .map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent.replace(/\s+/g, ' ').trim()))
+            .filter(r => r.length >= 9);
+        if (!validDataRows(rows, 9).length) throw new Error('無資料');
+        return rows;
+    }
+
     async function fetchFlightData() {
         flightStatusText = '航班更新中';
         updateStatusBar();
         try {
-            const arrRows = await loadSheetWithRetry(FLIGHT_ARR_SHEET);
+            let arrRows;
+            try { arrRows = await loadMkportArrivalRows(); }
+            catch (_) { arrRows = await loadSheetWithRetry(FLIGHT_ARR_SHEET); }
             const allowedAirports = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
 
             // 來程：航空公司、班次、來自、機型、表定起飛、實際起飛、表定到達、預估/實際到達、備註
@@ -2123,7 +2139,12 @@
             const now = liveNowPoint(live, f);
             const nowLat = now.lat, nowLon = now.lon;
             const distKm = getDistanceMeters(nowLat, nowLon, mzg.lat, mzg.lon) / 1000;
-            const remainMins = live.velocity > 0 ? Math.max(1, Math.round(distKm / (live.velocity * 3.6) * 60)) : null;
+            // 剩餘時間以預計抵達時間為準（與畫面上的預計抵達一致）；沒有時才依距離與速度估
+            const arrMin = parseClockMinutes(f.actualEnd || f.scheduledEnd);
+            const nowMin = taipeiNowMinutes();
+            const remainMins = (arrMin !== null && arrMin > nowMin)
+                ? Math.max(1, Math.round(arrMin - nowMin))
+                : (live.velocity > 0 ? Math.max(1, Math.round(distKm / (live.velocity * 3.6) * 60)) : null);
             return {
                 isLive: true,
                 lat: nowLat, lon: nowLon, bearing: now.bearing,
