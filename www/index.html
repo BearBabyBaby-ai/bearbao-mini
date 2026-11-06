@@ -366,6 +366,9 @@
         #list-tabs button[data-list="ships"].active { background: #0891b2; border-color: #0891b2; color: #ffffff; }
         #list-tabs button[data-list="flights"].active { background: #7c3aed; border-color: #7c3aed; color: #ffffff; }
         #list-ships[hidden], #list-flights[hidden] { display: none !important; }
+        @media (min-width: 821px) {
+            #row-flight-filter, #list-tabs, #list-flights { display: none !important; }   /* 電腦端不顯示航班相關內容 */
+        }
     </style>
 </head>
 <body>
@@ -1010,40 +1013,39 @@
             `).addTo(piersLayer);
         });
 
+        if (!isPhone) return;   // 電腦端不顯示機場
         const AIRPORT_COLORS = { MZG: '#7e22ce', TSA: '#1d4ed8', RMQ: '#ea580c', CYI: '#a16207', TNN: '#be185d', KHH: '#0f766e', CMJ: '#4d7c0f' };
         Object.values(AIRPORTS).forEach(apt => {
             const aptColor = AIRPORT_COLORS[apt.code] || '#7e22ce';
             const aptMarker = L.circleMarker([apt.lat, apt.lon], {
-                radius: isPhone ? 4.5 : 6.5,
+                radius: 4.5,
                 color: '#ffffff',
-                weight: isPhone ? 1.5 : 2,
+                weight: 1.5,
                 fillColor: aptColor,
                 fillOpacity: 1
-            });
-            if (!isPhone) aptMarker.bindTooltip(`${apt.name} (${apt.code})`, {
-                permanent: true,
-                direction: 'top',
-                className: 'airport-label',
-                offset: [0, -6]
-            }).on('tooltipopen', e => {
-                const el = e.tooltip.getElement();
-                if (el) { el.style.color = aptColor; el.style.borderColor = aptColor; el.style.background = '#ffffff'; }
             });
             aptMarker.bindPopup(`
                 <div style="font-size:13px; line-height:1.6;">
                     <strong style="font-size:14px; color:${aptColor};">✈️ ${apt.name} (${apt.code})</strong><br>
                     <b>緯度：</b>${apt.lat.toFixed(6)} | <b>經度：</b>${apt.lon.toFixed(6)}
                 </div>
-            `).on('click', () => {
-                if (apt.code === 'MZG' || PHONE_MQ.matches) return;   // 手機端沒有出發機場選單可改回，點機場不切換篩選
-                document.getElementById('select-airport').value = apt.code;
-                onAirportFilterChange();
-            }).addTo(airportLayer);
+            `).addTo(airportLayer);
         });
     }
 
     initPOILayers();
-    PHONE_MQ.addEventListener('change', initPOILayers);   // 手機橫直切換或視窗縮放時重畫
+    // 手機橫直切換或視窗縮放跨過分界時：重畫港口機場；切到手機端讀航班，切到電腦端清掉航班
+    PHONE_MQ.addEventListener('change', () => {
+        initPOILayers();
+        if (PHONE_MQ.matches) { fetchFlightData(); fetchAircraftPositions(); fetchDepartureBoards(); }
+        else {
+            document.querySelectorAll('#list-tabs [data-list]').forEach(x => x.classList.toggle('active', x.dataset.list === 'ships'));
+            document.getElementById('list-ships').hidden = false;
+            document.getElementById('list-flights').hidden = true;
+            renderFlights();
+        }
+        updateStatusBar();
+    });
 
     const shipMarkersLayer = L.layerGroup().addTo(map);
     const flightMarkersLayer = L.layerGroup().addTo(map);
@@ -1079,18 +1081,20 @@
     }
 
     function updateStatusBar() {
-        document.getElementById('status-text').innerText = `更新：${shipStatusText}｜${flightStatusText}｜`;
+        const phone = PHONE_MQ.matches;   // 電腦端不顯示航班、航機
+        document.getElementById('status-text').innerText = phone ? `更新：${shipStatusText}｜${flightStatusText}｜` : `更新：${shipStatusText}`;
         const acEl = document.getElementById('aircraft-status');
-        acEl.innerText = aircraftStatusText;
-        acEl.className = aircraftStatusWarn ? 'warn' : '';
+        acEl.innerText = phone ? aircraftStatusText : '';
+        acEl.className = phone && aircraftStatusWarn ? 'warn' : '';
         document.getElementById('refresh-countdown').innerText = countdownText();
-        document.getElementById('ship-count').innerText = `${shipCountText}｜${flightCountText}`;
+        document.getElementById('ship-count').innerText = phone ? `${shipCountText}｜${flightCountText}` : shipCountText;
     }
 
     function refreshAllData() {
         nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
         updateStatusBar();
         fetchTDXShipData();
+        if (!PHONE_MQ.matches) return;   // 電腦端不讀航班、航機資料
         fetchFlightData();
         fetchAircraftPositions();
         fetchDepartureBoards();
@@ -2057,6 +2061,7 @@
         planeMarkerRefs = [];
         const listEl = document.getElementById('list-flights');
         listEl.innerHTML = '';
+        if (!PHONE_MQ.matches) return;   // 電腦端不顯示飛機與航班
 
         const selectedAirport = document.getElementById('select-airport').value;
         const filteredFlights = allLiveFlights.filter(f => {
@@ -2250,7 +2255,7 @@
         if (nextRefreshAt && Date.now() >= nextRefreshAt) refreshAllData();
         else updateStatusBar();
     }, 1000);
-    setInterval(fetchAircraftPositions, POSITION_REFRESH_MS);
+    setInterval(() => { if (PHONE_MQ.matches) fetchAircraftPositions(); }, POSITION_REFRESH_MS);
     setInterval(movePlaneMarkers, 3000);
 </script>
 <script src="lib/papaparse.min.js"></script>
