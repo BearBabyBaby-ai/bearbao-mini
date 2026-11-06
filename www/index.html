@@ -369,6 +369,13 @@
         @media (min-width: 821px) {
             #row-flight-filter, #list-tabs, #list-flights { display: none !important; }   /* 電腦端不顯示航班相關內容 */
         }
+        /* 船隻雷達脈衝動畫 */
+        @keyframes radar-pulse {
+            0% { transform: scale(0.8); opacity: 0.9; }
+            100% { transform: scale(2.4); opacity: 0; }
+        }
+        .vessel-wrap { position: relative; width: 24px; height: 24px; }
+        .vessel-pulse { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; animation: radar-pulse 2.2s infinite ease-out; }
     </style>
 </head>
 <body>
@@ -1500,12 +1507,17 @@
 
     function createVesselIcon(cog = 0, sog = 0, isSpecial = false, color = '') {
         const fillColor = color || (isSpecial ? '#d97706' : (sog > 0.5 ? '#0d9488' : '#0284c7'));
+        // 雷達發送動畫：航行中（航速 3 節以上）的船，外圍持續擴散脈衝；停泊中不顯示
+        const pulseHtml = sog > 3 ? `<div class="vessel-pulse" style="background:${fillColor}73;"></div>` : '';
         return L.divIcon({
             className: 'vessel-icon',
-            html: `<div style="transform: rotate(${cog}deg); width: 24px; height: 24px; display:flex; align-items:center; justify-content:center;">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="${fillColor}" stroke="#ffffff" stroke-width="2">
-                        <polygon points="12,2 20,21 12,17 4,21" />
-                    </svg>
+            html: `<div class="vessel-wrap">
+                    ${pulseHtml}
+                    <div style="position:relative; z-index:1; transform: rotate(${cog}deg); width: 24px; height: 24px; display:flex; align-items:center; justify-content:center;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="${fillColor}" stroke="#ffffff" stroke-width="2">
+                            <polygon points="12,2 20,21 12,17 4,21" />
+                        </svg>
+                    </div>
                    </div>`,
             iconSize: [24, 24],
             iconAnchor: [12, 12]
