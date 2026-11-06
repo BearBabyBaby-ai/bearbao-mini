@@ -2166,34 +2166,27 @@
         return diff !== null && diff <= 2;
     }
 
+    // TDX 金鑰每分鐘只能讀 5 次（船舶資料也共用），所以各機場往澎湖的出發資訊一次讀完，不逐一機場讀取
     async function fetchDepartureBoards() {
         try {
             const token = await getTDXAccessToken();
-            const codes = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
             const today = taipeiDateKey();
-            // 某個機場這次讀取失敗時，保留它上一次讀到的今天資料，不會因此退回表定時間
+            // 這次讀取失敗時，保留上一次讀到的今天資料，不會因此退回表定時間
             const board = new Map([...departureBoard].filter(([, v]) => v.date === today));
-            for (const code of codes) {
-                try {
-                    const url = `https://tdx.transportdata.tw/api/basic/v2/Air/FIDS/Airport/Departure/${code}?%24filter=ArrivalAirportID%20eq%20%27MZG%27&%24format=JSON`;
-                    let res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
-                    if (res.status === 429) {
-                        await new Promise(r => setTimeout(r, 1500));
-                        res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
-                    }
-                    if (!res.ok) continue;
-                    const list = await res.json();
-                    (Array.isArray(list) ? list : (list.FIDSDepartures || list.Departures || [])).forEach(x => {
-                        const airline = String(x.AirlineID || '').toUpperCase();
-                        const prefix = AIRLINE_IATA_TO_ICAO[airline] || airline;
-                        const digits = String(x.FlightNumber || '').replace(/\D/g, '');
-                        if (!prefix || !digits) return;
-                        const date = String(x.ScheduleDepartureTime || x.FlightDate || '').slice(0, 10);
-                        if (date && date !== today) return;
-                        board.set(prefix + digits, buildBoardEntry(x, today, code));
-                    });
-                } catch (_) { }
-                await new Promise(r => setTimeout(r, 300));
+            const url = 'https://tdx.transportdata.tw/api/basic/v2/Air/FIDS/Airport/Departure?%24filter=ArrivalAirportID%20eq%20%27MZG%27&%24format=JSON';
+            const res = await withTimeout(fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }), 15000);
+            if (res.ok) {
+                const list = await res.json();
+                (Array.isArray(list) ? list : (list.FIDSDepartures || list.Departures || [])).forEach(x => {
+                    const code = String(x.DepartureAirportID || '').toUpperCase();
+                    const airline = String(x.AirlineID || '').toUpperCase();
+                    const prefix = AIRLINE_IATA_TO_ICAO[airline] || airline;
+                    const digits = String(x.FlightNumber || '').replace(/\D/g, '');
+                    if (!prefix || !digits) return;
+                    const date = String(x.ScheduleDepartureTime || x.FlightDate || '').slice(0, 10);
+                    if (date && date !== today) return;
+                    board.set(prefix + digits, buildBoardEntry(x, today, code));
+                });
             }
             departureBoard = board;
         } catch (_) { }
