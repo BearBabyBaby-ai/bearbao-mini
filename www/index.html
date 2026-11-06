@@ -150,6 +150,7 @@
         .ship-title { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 5px; }
         .route-tag { font-size: 11px; font-weight: 600; color: #0369a1; background: #e0f2fe; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
         .badge-online { background: #dcfce7; color: #15803d; border: 1px solid #86efac; font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: 700; white-space: nowrap; }
+        .badge-suspend { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: 700; white-space: nowrap; }
         .badge-offline { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
         
         .ship-meta { font-size: 12px; color: #475569; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
@@ -508,6 +509,7 @@
 </nav>
 
 <script src="lib/leaflet/leaflet.js"></script>
+<script src="lib/ship-suspension.js"></script>
 <script>
     const TDX_CONFIG = {
 		CLIENT_ID: "bearbaby2025.ai-fb5c40bb-0e3b-4e00",
@@ -1102,6 +1104,7 @@
         nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
         updateStatusBar();
         fetchTDXShipData();
+        refreshShipSuspension();
         if (!PHONE_MQ.matches) return;   // 電腦端不讀航班、航機資料
         fetchFlightData();
         fetchAircraftPositions();
@@ -1568,6 +1571,56 @@
         return { sog: moored ? 0 : rawSog, cog, moored, cogText: moored ? '—' : `${cog}°` };
     }
 
+    // 停泊中的船：起點改為目前停靠的港口；若該港是航線端點，終點為另一端，否則顯示「—」
+    function applyMooredPort(navInfo, routeKey, lat, lon) {
+        let best = null, bestDist = Infinity;
+        PIERS_AND_PORTS.forEach(p => { const d = getDistanceMeters(lat, lon, p.lat, p.lon); if (d < bestDist) { bestDist = d; best = p; } });
+        if (!best || bestDist > 1000) return navInfo;
+        const def = SEA_ROUTES_WAYPOINTS[routeKey];
+        let dest = '—';
+        if (def && def.portA === best.name) dest = def.portB;
+        else if (def && def.portB === best.name) dest = def.portA;
+        return { ...navInfo, origin: `${best.name}（停靠中）`, destination: dest };
+    }
+
+    // 船公司停航公告：APP 直接讀各船公司網站；網頁版讀排程產生的 ship_status.json
+    const IS_NATIVE_APP = Boolean(window.Capacitor?.isNativePlatform?.());
+    const SHIP_STATUS_URL = (IS_NATIVE_APP ? 'https://bearbabybaby-ai.github.io/bearbao-mini/' : '') + 'ship_status.json';
+    const SUSPENSION_KEY = 'bearbao_ship_suspension_v1';
+    const SUSPENSION_REFRESH_MS = 15 * 60 * 1000;
+    let suspensionResult = {}, suspensionCheckedAt = 0;
+    try { suspensionResult = JSON.parse(localStorage.getItem(SUSPENSION_KEY) || '{}') || {}; } catch (e) { suspensionResult = {}; }
+
+    async function fetchPageText(url) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        try {
+            const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return BearSuspension.decodeHtml(await res.arrayBuffer());
+        } finally { clearTimeout(timer); }
+    }
+
+    async function refreshShipSuspension() {
+        if (!window.BearSuspension || Date.now() - suspensionCheckedAt < SUSPENSION_REFRESH_MS) return;
+        suspensionCheckedAt = Date.now();
+        const merged = { ...suspensionResult };
+        try {
+            const res = await fetch(`${SHIP_STATUS_URL}?t=${Date.now()}`, { cache: 'no-store' });
+            if (res.ok) Object.entries((await res.json()).operators || {}).forEach(([k, v]) => { if (v && v.ok) merged[k] = v; });
+        } catch (e) { /* 讀不到就用上次結果 */ }
+        if (IS_NATIVE_APP) {
+            try { Object.entries(await BearSuspension.collect(fetchPageText)).forEach(([k, v]) => { if (v.ok) merged[k] = v; }); } catch (e) { /* 同上 */ }
+        }
+        suspensionResult = merged;
+        try { localStorage.setItem(SUSPENSION_KEY, JSON.stringify(merged)); } catch (e) { /* 無法儲存 */ }
+        if (allLiveShips.length) renderShips();
+    }
+
+    function isFleetSuspended(no) {
+        return window.BearSuspension ? BearSuspension.suspendedShips(suspensionResult).has(no) : false;
+    }
+
     // 指定船舶卡片（含線上／查無紀錄）
     function renderFleetShip(fleet, live, listEl) {
         const lat = live?.VesselPosition?.PositionLat;
@@ -1577,6 +1630,7 @@
         const twPortUrl = activeCallSign ? `https://sdci.twport.com.tw/khbweb/AIS_OSM.aspx?SIGNAL=${activeCallSign}` : '';
         const defaultRouteDef = SEA_ROUTES_WAYPOINTS[fleet.route] || SEA_ROUTES_WAYPOINTS["布袋 ⇄ 澎湖"];
         const palette = getShipColor(fleet, live);
+        const suspended = isFleetSuspended(fleet.no);
         let navInfo = {
             origin: defaultRouteDef.portA,
             destination: defaultRouteDef.portB,
@@ -1590,7 +1644,9 @@
             const { sog, cog } = motion;
             const isPenghu = fleet.no === "99";
             navInfo = analyzeShipNavigation(fleet.route, lat, lon, sog, cog, true);
+            if (motion.moored) navInfo = applyMooredPort(navInfo, fleet.route, lat, lon);
             if (live._stale) navInfo = { ...navInfo, etaText: `訊號中斷（最後紀錄 ${lastReportClock(live)}）` };
+            if (suspended) navInfo = { ...navInfo, etaText: '今日停航' };
 
             marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, isPenghu, palette.color) }).addTo(shipMarkersLayer);
             colorShipTooltip(marker, palette);
@@ -1620,7 +1676,7 @@
         card.innerHTML = `
             <div class="ship-title">
                 <span>🚢 No.${fleet.no} ${fleet.nameZh}<span class="route-tag" style="background:${palette.tint}; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
-                <span class="${isOnline && !live._stale ? 'badge-online' : 'badge-offline'}">${!isOnline ? '查無紀錄' : live._stale ? `最後位置 ${lastReportClock(live)}` : 'AIS 線上'}</span>
+                ${suspended ? '<span class="badge-suspend">今日停航</span>' : `<span class="${isOnline && !live._stale ? 'badge-online' : 'badge-offline'}">${!isOnline ? '查無紀錄' : live._stale ? `最後位置 ${lastReportClock(live)}` : 'AIS 線上'}</span>`}
             </div>
             <div class="ship-meta">
                 <span>起點: ${navInfo.origin}</span>
@@ -1629,7 +1685,7 @@
                 <span>航向: ${isOnline ? motion.cogText : '-'}</span>
                 <span style="grid-column: span 2;">經緯度: ${isOnline ? `${lat.toFixed(6)}, ${lon.toFixed(6)}` : '-'}</span>
                 <span style="grid-column: span 2; font-weight:700; color: ${isOnline ? '#be123c' : '#64748b'};">
-                    預計抵達終點: ${isOnline ? navInfo.etaText : '查無 AIS 紀錄'}
+                    預計抵達終點: ${suspended ? '今日停航' : isOnline ? navInfo.etaText : '查無 AIS 紀錄'}
                 </span>
             </div>
         `;
@@ -1655,6 +1711,7 @@
         const { sog, cog } = motion;
         const inferredRoute = inferShipRoute(ship, lat, lon, sog);
         let navInfo = inferredRoute ? analyzeShipNavigation(inferredRoute, lat, lon, sog, cog, true) : analyzeShipNavigation("", lat, lon, sog, cog, false);
+        if (inferredRoute && motion.moored) navInfo = applyMooredPort(navInfo, inferredRoute, lat, lon);
         if (ship._stale) navInfo = { ...navInfo, etaText: `訊號中斷（最後紀錄 ${lastReportClock(ship)}）` };
         const palette = getShipColor(null, ship);
 

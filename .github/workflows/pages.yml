@@ -2,10 +2,13 @@ name: 網頁版發布
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
   push:
     branches: [main]
     paths:
       - 'www/**'
+      - 'scripts/**'
       - '.github/workflows/pages.yml'
 
 permissions:
@@ -26,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: 讀取船公司停航公告
+        run: node scripts/ship-status.cjs || true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: www
