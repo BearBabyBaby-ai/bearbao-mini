@@ -6,8 +6,8 @@ import sharp from 'sharp';
 const A = 'android/app';
 const RES = `${A}/src/main/res`;
 const ICON = 'assets/icon.png';
-const VERSION_CODE = 23;
-const VERSION_NAME = "1.1.12";
+const VERSION_CODE = 24;
+const VERSION_NAME = "1.1.13";
 const BAR = '#0369a1';
 const BG = '#e0f2fe';
 

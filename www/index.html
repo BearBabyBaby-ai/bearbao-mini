@@ -1331,7 +1331,7 @@
             if (!response.ok) throw new Error(`API 請求失敗 (${response.status})`);
             const result = await response.json();
             const rawList = result.LivePositions || result || [];
-            allLiveShips = rawList.filter(ship => !isBlacklistedShip(ship));
+            allLiveShips = mergeLastKnownShips(rawList.filter(ship => !isBlacklistedShip(ship)));
             shipStatusText = `船舶 ${clockNow()}`;
             renderShips();
         } catch (err) {
@@ -1524,6 +1524,38 @@
         });
     }
 
+    // 最後位置：TDX 只提供最近一分鐘內有回報的船，船靠港關掉 AIS 後就會消失
+    // App 記住看過的每艘船最後位置（保留 12 小時），訊號中斷時仍顯示在最後位置
+    const SHIP_LAST_KEY = 'bearbao_ship_last_v1';
+    const SHIP_LAST_KEEP_MS = 12 * 60 * 60 * 1000;
+
+    function shipReportMs(s) {
+        const t = Date.parse(s.GPSTime || '');
+        return isNaN(t) ? (s._seenAt || Date.now()) : t;
+    }
+
+    function mergeLastKnownShips(fresh) {
+        let cache = {};
+        try { cache = JSON.parse(localStorage.getItem(SHIP_LAST_KEY) || '{}') || {}; } catch (_) { cache = {}; }
+        const now = Date.now();
+        const freshIds = new Set();
+        fresh.forEach(s => {
+            const id = String(s.MMSI || '').trim();
+            if (!id || !s.VesselPosition?.PositionLat) return;
+            freshIds.add(id);
+            const { _stale, ...clean } = s;
+            cache[id] = { ...clean, _seenAt: now };
+        });
+        Object.keys(cache).forEach(id => { if (now - shipReportMs(cache[id]) > SHIP_LAST_KEEP_MS) delete cache[id]; });
+        try { localStorage.setItem(SHIP_LAST_KEY, JSON.stringify(cache)); } catch (_) { }
+        const stale = Object.keys(cache).filter(id => !freshIds.has(id)).map(id => ({ ...cache[id], _stale: true }));
+        return fresh.concat(stale);
+    }
+
+    function lastReportClock(s) {
+        return new Date(shipReportMs(s)).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute: '2-digit' });
+    }
+
     // 停泊判斷：船停在碼頭時 AIS 定位會飄動，產生 0.3～1 節的假航速
     // 航速低於 3 節，或在碼頭 500 公尺內且低於 5 節，一律視為停泊（航速 0、不計算航程）
     function shipMotion(rec) {
@@ -1531,7 +1563,7 @@
         const rawSog = Number(rec.SOG ?? 0) || 0;
         const cog = rec.COG ?? rec.TrueHeading ?? 0;
         const nearPort = PIERS_AND_PORTS.some(p => getDistanceMeters(lat, lon, p.lat, p.lon) <= 500);
-        const moored = rawSog < 3 || (nearPort && rawSog < 5);
+        const moored = Boolean(rec._stale) || rawSog < 3 || (nearPort && rawSog < 5);
         return { sog: moored ? 0 : rawSog, cog, moored, cogText: moored ? '—' : `${cog}°` };
     }
 
@@ -1557,6 +1589,7 @@
             const { sog, cog } = motion;
             const isPenghu = fleet.no === "99";
             navInfo = analyzeShipNavigation(fleet.route, lat, lon, sog, cog, true);
+            if (live._stale) navInfo = { ...navInfo, etaText: `訊號中斷（最後紀錄 ${lastReportClock(live)}）` };
 
             marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, isPenghu, palette.color) }).addTo(shipMarkersLayer);
             colorShipTooltip(marker, palette);
@@ -1586,7 +1619,7 @@
         card.innerHTML = `
             <div class="ship-title">
                 <span>🚢 No.${fleet.no} ${fleet.nameZh}<span class="route-tag" style="background:${palette.tint}; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
-                <span class="${isOnline ? 'badge-online' : 'badge-offline'}">${isOnline ? 'AIS 線上' : '查無紀錄'}</span>
+                <span class="${isOnline && !live._stale ? 'badge-online' : 'badge-offline'}">${!isOnline ? '查無紀錄' : live._stale ? `最後位置 ${lastReportClock(live)}` : 'AIS 線上'}</span>
             </div>
             <div class="ship-meta">
                 <span>起點: ${navInfo.origin}</span>
@@ -1620,7 +1653,8 @@
         const motion = shipMotion(ship);
         const { sog, cog } = motion;
         const inferredRoute = inferShipRoute(ship, lat, lon, sog);
-        const navInfo = inferredRoute ? analyzeShipNavigation(inferredRoute, lat, lon, sog, cog, true) : analyzeShipNavigation("", lat, lon, sog, cog, false);
+        let navInfo = inferredRoute ? analyzeShipNavigation(inferredRoute, lat, lon, sog, cog, true) : analyzeShipNavigation("", lat, lon, sog, cog, false);
+        if (ship._stale) navInfo = { ...navInfo, etaText: `訊號中斷（最後紀錄 ${lastReportClock(ship)}）` };
         const palette = getShipColor(null, ship);
 
         const marker = L.marker([lat, lon], { icon: createVesselIcon(cog, sog, false, palette.color) }).addTo(shipMarkersLayer);
@@ -1645,7 +1679,7 @@
         card.innerHTML = `
             <div class="ship-title">
                 <span>🚢 ${nameZh}<span class="route-tag" style="background:${palette.tint}; color:${palette.color};">${navInfo.matchedRouteLabel}</span></span>
-                <span class="badge-online">AIS 線上</span>
+                <span class="${ship._stale ? 'badge-offline' : 'badge-online'}">${ship._stale ? `最後位置 ${lastReportClock(ship)}` : 'AIS 線上'}</span>
             </div>
             <div class="ship-meta">
                 <span>起點: ${navInfo.origin}</span>
