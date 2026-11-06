@@ -1220,7 +1220,7 @@
         }
 
         const remainingNmi = remainingChannelMeters / 1852;
-        let etaText = "停泊中 / 待航 (無航速)";
+        let etaText = "停泊中";
         if (sog >= 0.5) {
             if (remainingNmi <= 0.15) {
                 etaText = "即將靠港 / 已抵達";
@@ -1512,6 +1512,17 @@
         });
     }
 
+    // 停泊判斷：船停在碼頭時 AIS 定位會飄動，產生 0.3～1 節的假航速
+    // 航速低於 3 節，或在碼頭 500 公尺內且低於 5 節，一律視為停泊（航速 0、不計算航程）
+    function shipMotion(rec) {
+        const lat = rec.VesselPosition?.PositionLat, lon = rec.VesselPosition?.PositionLon;
+        const rawSog = Number(rec.SOG ?? 0) || 0;
+        const cog = rec.COG ?? rec.TrueHeading ?? 0;
+        const nearPort = PIERS_AND_PORTS.some(p => getDistanceMeters(lat, lon, p.lat, p.lon) <= 500);
+        const moored = rawSog < 3 || (nearPort && rawSog < 5);
+        return { sog: moored ? 0 : rawSog, cog, moored, cogText: moored ? '—' : `${cog}°` };
+    }
+
     // 指定船舶卡片（含線上／查無紀錄）
     function renderFleetShip(fleet, live, listEl) {
         const lat = live?.VesselPosition?.PositionLat;
@@ -1529,9 +1540,9 @@
         };
 
         let marker = null;
+        const motion = isOnline ? shipMotion(live) : null;
         if (isOnline) {
-            const sog = live.SOG ?? 0;
-            const cog = live.COG ?? live.TrueHeading ?? 0;
+            const { sog, cog } = motion;
             const isPenghu = fleet.no === "99";
             navInfo = analyzeShipNavigation(fleet.route, lat, lon, sog, cog, true);
 
@@ -1545,7 +1556,7 @@
                 <div style="font-size:13px; line-height:1.65; min-width:240px;">
                     <strong style="font-size:15px; color:${palette.color};">No.${fleet.no} ${fleet.nameZh}</strong><br>
                     <b>標示航線：</b><span style="color:#1d4ed8;font-weight:bold;">${navInfo.matchedRouteLabel}</span><br>
-                    <b>航速：</b>${sog} 節 (航向 ${cog}°)<br>
+                    <b>航速：</b>${sog} 節 (航向 ${motion.cogText})<br>
                     ${FLEET_SPECS[fleet.no] ? `<b>總噸位：</b>${FLEET_SPECS[fleet.no].gt}｜<b>載客數：</b>${FLEET_SPECS[fleet.no].pax}<br><b>船速：</b>巡航 ${FLEET_SPECS[fleet.no].cruise}／最高 ${FLEET_SPECS[fleet.no].max}<br>` : ''}
                     <b>起點：</b>${navInfo.origin}<br>
                     <b>終點：</b>${navInfo.destination}<br>
@@ -1568,8 +1579,8 @@
             <div class="ship-meta">
                 <span>起點: ${navInfo.origin}</span>
                 <span>終點: ${navInfo.destination}</span>
-                <span>航速: ${isOnline ? (live.SOG ?? 0) + ' 節 (kts)' : '-'}</span>
-                <span>航向: ${isOnline ? (live.COG ?? live.TrueHeading ?? 0) + '°' : '-'}</span>
+                <span>航速: ${isOnline ? motion.sog + ' 節 (kts)' : '-'}</span>
+                <span>航向: ${isOnline ? motion.cogText : '-'}</span>
                 <span style="grid-column: span 2;">經緯度: ${isOnline ? `${lat.toFixed(6)}, ${lon.toFixed(6)}` : '-'}</span>
                 <span style="grid-column: span 2; font-weight:700; color: ${isOnline ? '#be123c' : '#64748b'};">
                     預計抵達終點: ${isOnline ? navInfo.etaText : '查無 AIS 紀錄'}
@@ -1594,8 +1605,8 @@
         const lon = ship.VesselPosition.PositionLon;
         const mmsi = String(ship.MMSI || '').trim();
         const nameZh = ship.VesselName?.Zh_tw || ship.VesselName?.En || `MMSI: ${mmsi}`;
-        const sog = ship.SOG ?? 0;
-        const cog = ship.COG ?? ship.TrueHeading ?? 0;
+        const motion = shipMotion(ship);
+        const { sog, cog } = motion;
         const inferredRoute = inferShipRoute(ship, lat, lon, sog);
         const navInfo = inferredRoute ? analyzeShipNavigation(inferredRoute, lat, lon, sog, cog, true) : analyzeShipNavigation("", lat, lon, sog, cog, false);
         const palette = getShipColor(null, ship);
@@ -1607,7 +1618,7 @@
             <div style="font-size:13px; line-height:1.65; min-width:240px;">
                 <strong style="font-size:15px; color:${palette.color};">${nameZh}</strong><br>
                 <b>標示航線：</b><span style="color:#1d4ed8;font-weight:bold;">${navInfo.matchedRouteLabel}</span><br>
-                <b>航速：</b>${sog} 節 (航向 ${cog}°)<br>
+                <b>航速：</b>${sog} 節 (航向 ${motion.cogText})<br>
                 <b>起點：</b>${navInfo.origin}<br>
                 <b>終點：</b>${navInfo.destination}<br>
                 <b>經緯度：</b>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>
@@ -1628,7 +1639,7 @@
                 <span>起點: ${navInfo.origin}</span>
                 <span>終點: ${navInfo.destination}</span>
                 <span>航速: ${sog} 節 (kts)</span>
-                <span>航向: ${cog}°</span>
+                <span>航向: ${motion.cogText}</span>
                 <span style="grid-column: span 2;">經緯度: ${lat.toFixed(6)}, ${lon.toFixed(6)}</span>
                 <span style="grid-column: span 2; font-weight:700; color:#be123c;">預計抵達終點: ${navInfo.etaText}</span>
             </div>
