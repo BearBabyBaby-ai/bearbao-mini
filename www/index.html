@@ -378,7 +378,7 @@
         <div class="control-row" id="row-ship-filter">
             <label for="select-filter">顯示船舶過濾：</label>
             <select id="select-filter" class="select-box" onchange="renderShips()">
-                <option value="penghu_20nm" selected>澎湖周圍海域 20 海浬＋高雄 澎湖輪</option>
+                <option value="penghu_20nm" selected>澎湖周圍海域 20 海浬＋指定船舶</option>
             </select>
         </div>
 
@@ -414,7 +414,7 @@
         <div class="layer-toggles">
             <span>地標圖層顯示：</span>
             <label><input type="checkbox" id="chk-piers" checked onchange="togglePOILayers()"> ⚓ 碼頭 (21)</label>
-            <label><input type="checkbox" id="chk-visitors" checked onchange="togglePOILayers()"> ℹ️ 遊客中心 (14)</label>
+            <label><input type="checkbox" id="chk-visitors" onchange="togglePOILayers()"> ℹ️ 遊客中心 (14)</label>
             <label><input type="checkbox" id="chk-airports" checked onchange="togglePOILayers()"> ✈️ 機場 (7)</label>
         </div>
 
@@ -427,8 +427,7 @@
 
         <button class="btn-fetch" onclick="refreshAllData()">🔄 立即重新整理資料</button>
         <div class="status-bar">
-            <div class="status-row"><span id="status-text">資料載入中...</span></div>
-            <div class="status-row"><span id="aircraft-status">航機位置載入中</span></div>
+            <div class="status-row"><span><span id="status-text">資料載入中...</span><span id="aircraft-status"></span></span></div>
             <div class="status-row"><span id="refresh-countdown"></span><span id="ship-count">船舶 0 艘｜航班 0 班</span></div>
         </div>
     </div>
@@ -930,7 +929,7 @@
     let currentZone = ZONES.all_corridor;
     let shipStatusText = "船舶載入中";
     let flightStatusText = "航班載入中";
-    let aircraftStatusText = "航機位置載入中";
+    let aircraftStatusText = "航機載入中";
     let aircraftStatusWarn = false;
     let shipCountText = "船舶 0 艘";
     let flightCountText = "航班 0 班";
@@ -976,23 +975,31 @@
     }
 
     const piersLayer = L.layerGroup().addTo(map);
-    const visitorCentersLayer = L.layerGroup().addTo(map);
+    const visitorCentersLayer = L.layerGroup();   // 遊客中心不顯示
     const airportLayer = L.layerGroup().addTo(map);
 
+    // 手機端（與版面相同的 820px 分界）：港口、機場不顯示標籤，圓圈縮小；點圓圈仍會跳出名稱與座標
+    const PHONE_MQ = window.matchMedia('(max-width: 820px)');
+
     function initPOILayers() {
+        const isPhone = PHONE_MQ.matches;
+        piersLayer.clearLayers();
+        airportLayer.clearLayers();
         PIERS_AND_PORTS.forEach(pier => {
-            L.circleMarker([pier.lat, pier.lon], {
-                radius: pier.isMajor ? 7 : 5.5,
+            const pierMarker = L.circleMarker([pier.lat, pier.lon], {
+                radius: isPhone ? (pier.isMajor ? 4.5 : 3.5) : (pier.isMajor ? 7 : 5.5),
                 color: '#ffffff',
-                weight: 2,
+                weight: isPhone ? 1.5 : 2,
                 fillColor: pier.isMajor ? '#e11d48' : '#0d9488',
                 fillOpacity: 1
-            }).bindTooltip(pier.name, {
+            });
+            if (!isPhone) pierMarker.bindTooltip(pier.name, {
                 permanent: false,
                 direction: 'top',
                 className: pier.isMajor ? 'port-label' : 'pier-label',
                 offset: [0, -6]
-            }).bindPopup(`
+            });
+            pierMarker.bindPopup(`
                 <div style="font-size:13px; line-height:1.6;">
                     <strong style="font-size:14px; color:#0f766e;">⚓ ${pier.name}</strong><br>
                     <b>緯度：</b>${pier.lat.toFixed(6)} | <b>經度：</b>${pier.lon.toFixed(6)}
@@ -1000,36 +1007,17 @@
             `).addTo(piersLayer);
         });
 
-        VISITOR_CENTERS.forEach(vc => {
-            L.circleMarker([vc.lat, vc.lon], {
-                radius: 5,
-                color: '#ffffff',
-                weight: 1.5,
-                fillColor: '#d97706',
-                fillOpacity: 0.95
-            }).bindTooltip(vc.name, {
-                permanent: false,
-                direction: 'top',
-                className: 'visitor-label',
-                offset: [0, -5]
-            }).bindPopup(`
-                <div style="font-size:13px; line-height:1.6;">
-                    <strong style="font-size:14px; color:#b45309;">ℹ️ ${vc.name}</strong><br>
-                    <b>緯度：</b>${vc.lat.toFixed(6)} | <b>經度：</b>${vc.lon.toFixed(6)}
-                </div>
-            `).addTo(visitorCentersLayer);
-        });
-
         const AIRPORT_COLORS = { MZG: '#7e22ce', TSA: '#1d4ed8', RMQ: '#ea580c', CYI: '#a16207', TNN: '#be185d', KHH: '#0f766e', CMJ: '#4d7c0f' };
         Object.values(AIRPORTS).forEach(apt => {
             const aptColor = AIRPORT_COLORS[apt.code] || '#7e22ce';
-            L.circleMarker([apt.lat, apt.lon], {
-                radius: 6.5,
+            const aptMarker = L.circleMarker([apt.lat, apt.lon], {
+                radius: isPhone ? 4.5 : 6.5,
                 color: '#ffffff',
-                weight: 2,
+                weight: isPhone ? 1.5 : 2,
                 fillColor: aptColor,
                 fillOpacity: 1
-            }).bindTooltip(`${apt.name} (${apt.code})`, {
+            });
+            if (!isPhone) aptMarker.bindTooltip(`${apt.name} (${apt.code})`, {
                 permanent: true,
                 direction: 'top',
                 className: 'airport-label',
@@ -1037,7 +1025,8 @@
             }).on('tooltipopen', e => {
                 const el = e.tooltip.getElement();
                 if (el) { el.style.color = aptColor; el.style.borderColor = aptColor; el.style.background = '#ffffff'; }
-            }).bindPopup(`
+            });
+            aptMarker.bindPopup(`
                 <div style="font-size:13px; line-height:1.6;">
                     <strong style="font-size:14px; color:${aptColor};">✈️ ${apt.name} (${apt.code})</strong><br>
                     <b>緯度：</b>${apt.lat.toFixed(6)} | <b>經度：</b>${apt.lon.toFixed(6)}
@@ -1051,6 +1040,7 @@
     }
 
     initPOILayers();
+    PHONE_MQ.addEventListener('change', initPOILayers);   // 手機橫直切換或視窗縮放時重畫
 
     const shipMarkersLayer = L.layerGroup().addTo(map);
     const flightMarkersLayer = L.layerGroup().addTo(map);
@@ -1086,7 +1076,7 @@
     }
 
     function updateStatusBar() {
-        document.getElementById('status-text').innerText = `${shipStatusText}｜${flightStatusText}`;
+        document.getElementById('status-text').innerText = `更新：${shipStatusText}｜${flightStatusText}｜`;
         const acEl = document.getElementById('aircraft-status');
         acEl.innerText = aircraftStatusText;
         acEl.className = aircraftStatusWarn ? 'warn' : '';
@@ -1328,7 +1318,7 @@
             const result = await response.json();
             const rawList = result.LivePositions || result || [];
             allLiveShips = rawList.filter(ship => !isBlacklistedShip(ship));
-            shipStatusText = `船舶更新 ${clockNow()}`;
+            shipStatusText = `船舶 ${clockNow()}`;
             renderShips();
         } catch (err) {
             shipStatusText = `船舶：${err.message}`;
@@ -1492,7 +1482,7 @@
             })).filter(f => allowedAirports.includes(f.DepartureAirportID));
             applyDepartureBoards();
 
-            flightStatusText = `航班更新 ${clockNow()}`;
+            flightStatusText = `航班 ${clockNow()}`;
             renderFlights();
         } catch (err) {
             allLiveFlights = [];
@@ -1654,13 +1644,13 @@
             if (live && !fleetByLive.has(live)) fleetByLive.set(live, f);
         });
 
-        // 澎湖周圍海域 20 海浬；高雄 澎湖輪不受 20 海浬限制，其餘規則與其他指定船舶相同
+        // 只取澎湖周圍海域 20 海浬內的船（不限種類）；指定名單內的船不論位置（含高雄港、布袋港）都納入
         const entries = allLiveShips
             .filter(s => {
                 const lat = s.VesselPosition?.PositionLat;
                 const lon = s.VesselPosition?.PositionLon;
                 if (!lat || !lon) return false;
-                if (ALWAYS_SHOW_FLEET.has(fleetByLive.get(s)?.no)) return true;
+                if (fleetByLive.has(s)) return true;
                 return isWithinPenghuRange(lat, lon);
             })
             .map(s => ({ live: s, fleet: fleetByLive.get(s) || null }))
@@ -1827,12 +1817,17 @@
 
         liveDataOk = okCount > 0;
         if (okCount > 0) {
+            // 這次沒收到、但 5 分鐘內在空中收到過的班機，保留上一筆位置（依速度航向往前移），不會一收不到就消失
+            const nowMs = Date.now();
+            liveAircraftByCallsign.forEach((rec, cs) => {
+                if (!merged.has(cs) && !rec.onGround && rec.ts && nowMs - rec.ts <= AIRCRAFT_STALE_MS) merged.set(cs, rec);
+            });
             liveAircraftByCallsign = merged;
-            aircraftStatusText = `航機即時位置更新 ${clockNow()}`;
+            aircraftStatusText = `航機 ${clockNow()}`;
             aircraftStatusWarn = false;
         } else {
             liveAircraftByCallsign = new Map();
-            aircraftStatusText = '⚠ 航機即時位置暫時無法取得（改依時間推算）';
+            aircraftStatusText = '⚠ 航機位置無法取得';
             aircraftStatusWarn = true;
         }
         updateStatusBar();
@@ -1986,7 +1981,7 @@
             };
         }
         if (live && live.onGround) return null;
-        if (liveDataOk) return null;   // 即時資料裡沒有這班在空中：還沒起飛（或已降落），不畫
+        // 即時資料暫時收不到這班（海峽上空常有訊號空檔）：已真正起飛、尚未抵達的，依時間推算位置，圖示不消失
         return estimateInFlightPosition(f);
     }
 
