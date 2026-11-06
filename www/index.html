@@ -1718,7 +1718,7 @@
 
     // ===== 航機即時位置：多個免費來源同時讀取，同一班機取最新一筆 =====
     let liveAircraftByCallsign = new Map();
-    let liveDataOk = false;   // 有讀到即時航機資料時，只以即時資料為準，不再依時間推算
+    let liveDataOk = false;   // 是否有讀到即時航機資料
 
     function withTimeout(promise, ms) {
         return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('逾時')), ms))]);
@@ -1911,19 +1911,15 @@
     // 起飛與抵達時間：實際起飛優先；預估抵達優先，沒有時依起飛延誤順延
     // 實際空中飛行時間（分鐘）：表定時間含滑行與緩衝，比實際飛行長，直接用會讓位置落後
     const AIRBORNE_MINUTES = { TSA: 48, RMQ: 28, CYI: 22, TNN: 22, KHH: 27, CMJ: 15 };
-    const TAXI_IN_MINUTES = 6;
 
-    // 起飛：只用實際起飛（沒有就是還沒起飛，不拿表定起飛代替）
-    // 抵達：預估抵達有更新（不同於表定）就用預估，否則用實際起飛＋實際飛行時間；
-    //       預估抵達若比實際起飛後最短可能抵達的時間還早（延誤前算的舊預估），改用實際起飛＋實際飛行時間
+    // 起飛：只用實際起飛（沒有就是還沒起飛，不拿表定起飛代替）；抵達：預估實際抵達
     function flightTimes(f) {
         const dep = parseClockMinutes(f.actualStart);
         const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
         if (dep === null) return { dep: null, arr: eArr ?? sArr };
-        const airborne = AIRBORNE_MINUTES[f.DepartureAirportID] || 30;
-        const estimateUpdated = eArr !== null && (sArr === null || eArr !== sArr);
-        const landing = eArr !== null ? eArr - TAXI_IN_MINUTES : null;   // 預估到達是停到停機位的時間，落地約早 6 分鐘
-        const arr = (estimateUpdated && landing >= dep + airborne * 0.7) ? landing : dep + airborne;
+        // 時間推算：實際起飛 → 預估實際抵達（沒有預估時用表定到達；兩者都早於起飛才用實際飛行時間）
+        const end = eArr ?? sArr;
+        const arr = (end !== null && end > dep) ? end : dep + (AIRBORNE_MINUTES[f.DepartureAirportID] || 30);
         return { dep, arr };
     }
 
@@ -1993,8 +1989,6 @@
     function getEtaClock(f, pos) {
         if (pos && pos.isLive && pos.remainMins) return formatClock(taipeiNowMinutes() + pos.remainMins);
         const { dep, arr } = flightTimes(f);
-        const sArr = parseClockMinutes(f.scheduledEnd), eArr = parseClockMinutes(f.actualEnd);
-        if (dep !== null && arr !== null && eArr !== null && eArr !== sArr && arr === eArr - TAXI_IN_MINUTES) return f.actualEnd;
         return arr !== null ? formatClock(arr) : (f.actualEnd || f.scheduledEnd || '—');
     }
 
