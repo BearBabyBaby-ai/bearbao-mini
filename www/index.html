@@ -1502,7 +1502,7 @@
         try {
             let arrRows;
             try { arrRows = await loadMkportArrivalRows(); }
-            catch (_) { arrRows = await loadSheetWithRetry(FLIGHT_ARR_SHEET); }
+            catch (_) { arrRows = (await loadSheetWithRetry(FLIGHT_ARR_SHEET)).map(r => r.length >= 10 ? r.slice(0, 5).concat(r.slice(6)) : r); }   // 試算表 F 欄是「異動後起飛」，這裡略過
             const allowedAirports = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
 
             // 來程：航空公司、班次、來自、機型、表定起飛、實際起飛、表定到達、預估/實際到達、備註
