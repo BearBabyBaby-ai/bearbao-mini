@@ -1349,6 +1349,8 @@
     const FLIGHT_HISTORY_MINUTES = 90;
 
     function normalizeText(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
+    // 時間一律 HH:MM（8:05 → 08:05）
+    function padHM(value) { const t = normalizeText(value), m = t.match(/^(\d{1,2})\s*[:：]\s*(\d{2})$/); return m ? `${m[1].padStart(2, '0')}:${m[2]}` : t; }
 
     function displayCell(cell) {
         if (!cell) return '';
@@ -1500,21 +1502,34 @@
         flightStatusText = '航班更新中';
         updateStatusBar();
         try {
+            // 試算表「抵達航班」：F 異動後起飛、G 實際起飛（航空公司優先）、I 異動後預計抵達、J 預估／實際到達（航空公司優先）
+            let sheetRows = [];
+            try { sheetRows = await loadSheetWithRetry(FLIGHT_ARR_SHEET); } catch (_) { sheetRows = []; }
+            const sheetBy = new Map();
+            validDataRows(sheetRows, 11).forEach(r => sheetBy.set(trackingFlightNo(r[0], r[1]), { revDep: padHM(r[5]), actDep: padHM(r[6]), revArr: padHM(r[8]), actArr: padHM(r[9]) }));
             let arrRows;
             try { arrRows = await loadMkportArrivalRows(); }
-            catch (_) { arrRows = (await loadSheetWithRetry(FLIGHT_ARR_SHEET)).map(r => r.length >= 11 ? r.slice(0, 5).concat(r.slice(6, 8), r.slice(9)) : r); }   // 試算表 F「異動後起飛」、I「異動後預計抵達」這裡略過
+            catch (_) {
+                if (!sheetRows.length) throw new Error('航班資料讀取失敗');
+                arrRows = sheetRows.map(r => r.length >= 11 ? r.slice(0, 5).concat(r.slice(6, 8), r.slice(9)) : r);
+            }
             const allowedAirports = ['TSA', 'RMQ', 'CYI', 'TNN', 'KHH', 'CMJ'];
 
             // 來程：航空公司、班次、來自、機型、表定起飛、實際起飛、表定到達、預估/實際到達、備註
-            allLiveFlights = validDataRows(arrRows, 9).map(r => ({
-                airline: r[0],
-                flight: trackingFlightNo(r[0], r[1]),
-                place: r[2],
-                DepartureAirportID: extractAirportCode(r[2]),
-                ArrivalAirportID: 'MZG',
-                scheduledStart: r[4], actualStart: r[5], scheduledEnd: r[6], actualEnd: r[7], remark: r[8], aircraft: r[3],
-                status: arrivalStatus(r[8], r[4], r[5], r[6], r[7])
-            })).filter(f => allowedAirports.includes(f.DepartureAirportID));
+            allLiveFlights = validDataRows(arrRows, 9).map(r => {
+                const flight = trackingFlightNo(r[0], r[1]);
+                const sh = sheetBy.get(flight) || {};
+                // 航空公司有實際起飛／實際抵達時以航空公司為準（試算表 G、J 已是航空公司優先）
+                const actualStart = sh.actDep || padHM(r[5]), actualEnd = sh.actArr || padHM(r[7]);
+                return {
+                    airline: r[0], flight, place: r[2],
+                    DepartureAirportID: extractAirportCode(r[2]),
+                    ArrivalAirportID: 'MZG',
+                    scheduledStart: padHM(r[4]), actualStart, scheduledEnd: padHM(r[6]), actualEnd, remark: r[8], aircraft: r[3],
+                    expectedStart: sh.revDep || '', expectedEnd: sh.revArr || '',
+                    status: arrivalStatus(r[8], padHM(r[4]), actualStart, padHM(r[6]), actualEnd)
+                };
+            }).filter(f => allowedAirports.includes(f.DepartureAirportID));
             applyDepartureBoards();
 
             flightStatusText = `航班 ${clockNow()}`;
@@ -2268,6 +2283,8 @@
                         <b>預計抵達：</b>${etaClock}<br>
                         <b>經緯度：</b>${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)}<br>
                         <b>起飛 (表定／實際)：</b>${f.scheduledStart || '—'} / ${f.actualStart || '—'}<br>
+                        ${f.expectedStart ? `<b>異動後起飛：</b><span style="background:#fff1d6; color:#c62828; font-weight:800; border-radius:4px; padding:0 4px;">${f.expectedStart}</span><br>` : ''}
+                        ${f.expectedEnd ? `<b>異動後預計抵達：</b><span style="background:#fff1d6; color:#c62828; font-weight:800; border-radius:4px; padding:0 4px;">${f.expectedEnd}</span><br>` : ''}
                         <b>到達 (表定／預估實際)：</b>${f.scheduledEnd || '—'} / ${f.actualEnd || '—'}
                     </div>
                 `);
@@ -2288,6 +2305,8 @@
                 <div class="ship-meta">
                     <span>表定起飛: ${f.scheduledStart || '—'}</span>
                     <span>實際起飛: ${f.actualStart || '—'}</span>
+                    ${f.expectedStart || f.expectedEnd ? `<span><span style="background:#fff1d6; color:#c62828; font-weight:800; border-radius:4px; padding:0 4px;">異動後起飛: ${f.expectedStart || '—'}</span></span>
+                    <span><span style="background:#fff1d6; color:#c62828; font-weight:800; border-radius:4px; padding:0 4px;">異動後預計抵達: ${f.expectedEnd || '—'}</span></span>` : ''}
                     <span>表定到達: ${f.scheduledEnd || '—'}</span>
                     <span>預估／實際到達: ${f.actualEnd || '—'}</span>
                     ${posLine}
@@ -2378,6 +2397,9 @@
             const times = flightTimes(f);
             const endForStatus = (f.actualStart && times.arr !== null) ? formatClock(times.arr) : f.actualEnd;
             f.status = arrivalStatus(f.remark, f.scheduledStart, f.actualStart, f.scheduledEnd, endForStatus);
+            // 有異動後起飛且比表定晚、還沒起飛 → 延誤
+            const rev = parseClockMinutes(f.expectedStart), sch = parseClockMinutes(f.scheduledStart);
+            if (!f.actualStart && rev !== null && sch !== null && rev > sch && ['Waiting', 'OnTime'].includes(f.status.className)) f.status = { text: '延誤 Delayed', className: 'Delayed', history: f.status.history };
             if (!f.actualStart && b && b.departed && f.status.className === 'Waiting') {
                 const raw = normalizeText(f.remark);
                 f.status = minutesFromNow(f.actualEnd || f.scheduledEnd) >= 0
